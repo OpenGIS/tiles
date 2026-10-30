@@ -10,7 +10,7 @@ Read [README.md](README.md) and [docs/README.md](docs/README.md) first.
 
 ## Configuration
 
-Layer configuration will live in `config/layers.json` once the serving core lands.
+Layer configuration lives in `config/layers.json` and is validated at startup.
 
 ## Testing
 
@@ -25,11 +25,11 @@ start.
 
 ## Temporary artefacts
 
-Do not commit temporary artefacts. Use the session's ignored scratch directory.
+Do not commit temporary artefacts. Use the gitignored `tmp/` directory in the project root.
 
 ## Project files
 
-Do not write personal names or session context into project files.
+Do not write personal names or operational context into project files.
 
 ## Git
 

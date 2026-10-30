@@ -1,0 +1,33 @@
+{
+  "filename": "pois.pmtiles",
+  "sha256": "0886c8be9d7c43fa646a5f1315c21fd14a4711f040b0d1146db9696b6a87cb19",
+  "bytes": 4527820,
+  "provenance": {
+    "description": "v1 outdoor POIs development extract, Italy",
+    "upstream": "Geofabrik Italy OpenStreetMap extract (https://download.geofabrik.de/europe/italy.html)",
+    "extractDate": "2026-07-28",
+    "extractDateSource": "planetiler:osm:osmosisreplicationtime",
+    "generatedAt": "unknown",
+    "generator": "Planetiler 0.10.2",
+    "generationCommand": "Not recorded in the archived extract metadata. Planetiler build metadata reports 2026-03-28T14:35:36.815Z, which predates the recorded extract and is not treated as a reliable generation date.",
+    "licence": "ODbL-1.0",
+    "licenceUrl": "https://opendatacommons.org/licenses/odbl/1-0/"
+  },
+  "archive": {
+    "specVersion": 3,
+    "minZoom": 0,
+    "maxZoom": 16
+  },
+  "metadata": {
+    "name": "Outdoor POIs",
+    "version": "1.0.0",
+    "metadataZoomRange": {
+      "minzoom": 8,
+      "maxzoom": 16
+    }
+  },
+  "knownTiles": {
+    "nonEmpty": { "z": 12, "x": 2167, "y": 1454, "layer": "outdoor_pois", "features": 29 },
+    "empty": { "z": 12, "x": 0, "y": 0 }
+  }
+}

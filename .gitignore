@@ -5,6 +5,7 @@ node_modules/
 data/
 dist/
 coverage/
+tmp/
 test-results/
 playwright-report/
 .DS_Store

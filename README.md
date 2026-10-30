@@ -7,7 +7,11 @@ Small, API-only tile server for OpenStreetMap-derived outdoor layers.
 
 ## Status
 
-Phase 0 scaffold. The serving API, development harness and build pipelines are under construction.
+Phase 1, the serving core, is implemented: manifest validation, a minimal PMTiles v3 reader, a
+current/previous source adapter, the HTTP serving core and tests.
+
+Phases 2–7 are pending: development harness, contours, build pipelines, provisioning, planet build
+and hardening. The server is API-only; there is no production frontend yet.
 
 ## Requirements
 
@@ -18,28 +22,148 @@ Phase 0 scaffold. The serving API, development harness and build pipelines are u
 
 ```sh
 npm install
-npm test
-PORT=11004 npm run dev
+npm start
 ```
 
-In another terminal:
+`npm start` loads `.env` when present and listens on the host and port from `config/layers.json`,
+by default `127.0.0.1:11010`. Then:
 
 ```sh
-curl http://127.0.0.1:11004/health
+curl -s http://127.0.0.1:11010/health
+curl -i http://127.0.0.1:11010/pois.json
 ```
 
-Choose a free port in the 11001–11999 range; check with
-`lsof -nP -iTCP:<port> -sTCP:LISTEN` before starting. Never stop an existing server to free a port.
+> [!WARNING]
+> Archives are not committed. A fresh checkout starts, but every source in the shipped manifest
+> (`pois`, `routes`, `paths`) is unavailable: `/health` reports `degraded` with `available: false`
+> for each missing source, `/sources` shows the same, and `/ready` returns 503 while any source is
+> unavailable. Supplying only `data/pois/current.pmtiles` makes `pois` available; `routes` and
+> `paths` remain missing.
+
+A minimal source directory only needs the archive:
+
+```text
+data/pois/
+└── current.pmtiles
+```
+
+An optional `current.json` sidecar supplies a build ID:
+
+```json
+{ "buildId": "2026-10-30" }
+```
+
+Without it, the build ID defaults to `current`.
+
+## Configuration
+
+`config/layers.json` is the single source of truth for the server and every source. Set
+`CONFIG_PATH` to load a different manifest. Relative `archiveDir` values resolve against the
+repository root, not the manifest's directory; an absolute path is trusted.
+
+The excerpt below is abridged: it shows only the `pois` source. The shipped manifest defines
+`pois`, `routes` and `paths`.
+
+```json
+{
+  "version": 1,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 11010,
+    "publicBaseUrl": null,
+    "trustProxy": false
+  },
+  "sources": {
+    "pois": {
+      "kind": "pmtiles",
+      "title": "Outdoor POIs",
+      "description": "Huts, shelters, viewpoints and other outdoor points of interest.",
+      "attribution": [
+        { "title": "OpenStreetMap", "href": "https://www.openstreetmap.org/copyright" }
+      ],
+      "archiveDir": "data/pois",
+      "minzoom": 12,
+      "maxzoom": 16
+    }
+  }
+}
+```
+
+The validator rejects unknown keys, unsupported source kinds, invalid source names, bad zoom ranges,
+non-http(s) attribution links and relative paths that escape the repository root. `HOST`, `PORT` and
+`PUBLIC_BASE_URL` override the manifest; `CONFIG_PATH` selects a different manifest. Forwarded
+headers are ignored unless `server.trustProxy` is `true`; a configured `publicBaseUrl` always wins.
+Full rules: [docs/2.architecture.md](docs/2.architecture.md#manifest).
+
+## Endpoints
+
+| Method | Path                                  | Description                                 |
+| ------ | ------------------------------------- | ------------------------------------------- |
+| `GET`  | `/`                                   | Service index.                              |
+| `GET`  | `/health`                             | Availability of every source.               |
+| `GET`  | `/ready`                              | Readiness; 503 while any source is missing. |
+| `GET`  | `/sources`                            | Source catalogue.                           |
+| `GET`  | `/<source>.json`                      | TileJSON 3.0.0.                             |
+| `GET`  | `/<source>/<z>/<x>/<y>.pbf`           | Current tile.                               |
+| `GET`  | `/<source>/<buildId>/<z>/<x>/<y>.pbf` | Versioned tile.                             |
+
+`HEAD` and `OPTIONS` are supported on known routes. Unknown routes return 404; unsupported methods
+return 405; invalid coordinates, invalid build IDs and tile query strings return 400. `/health`
+always returns 200 and reports `degraded`, while `/ready` returns 503 while any source is unavailable.
+
+Tiles are `application/x-protobuf`; empty tiles return 204. Gzip-stored tiles are returned as stored
+when accepted, otherwise decompressed to identity. ETags include the build ID and coordinates and
+end in `-gzip`, `-identity` or `-empty`; a matching `If-None-Match` returns 304. Versioned URLs are
+immutable; unversioned tiles and TileJSON use a short TTL; health and errors are `no-store`. Full
+contract:
+[docs/2.architecture.md](docs/2.architecture.md#http-contract).
+
+## Data layout
+
+Each source has its own directory:
+
+```text
+data/pois/
+├── current.pmtiles
+├── current.json
+├── previous.pmtiles
+└── previous.json
+```
+
+- `current.pmtiles` is required and served by unversioned tile URLs.
+- `previous.pmtiles` is the optional rollback archive, served only by its versioned URL.
+- `current.json` and `previous.json` are optional sidecars that may contain `{ "buildId": "..." }`;
+  without them the build IDs default to `current` and `previous`.
+- A missing or unreadable current archive marks the source unavailable. A missing previous archive
+  only removes the rollback URL.
+- Archives are opened at startup, so replacing one requires a restart.
+
+Atomic promote and rollback are future operational steps. The `current`/`previous` layout and
+immutable versioned URLs support them.
+
+## Testing
+
+```sh
+npm test
+npm run format:check
+```
+
+Tests use Vitest. A small POI archive fixture lives in `test/fixtures/`, with its SHA-256 and
+provenance recorded in the accompanying manifest. Tests bind ephemeral ports and use the gitignored
+`tmp/` directory for temporary archives.
 
 ## Layout
 
-- `src/` — server source.
-- `test/` — automated tests.
+- `config/layers.json` — the manifest.
+- `src/` — HTTP server, config validation, PMTiles reader and source adapters.
+- `test/` — unit and integration tests.
 - `docs/` — project documentation.
 
 ## Documentation
 
-See [docs/README.md](docs/README.md).
+- [Architecture](docs/2.architecture.md) — the Phase 1 serving core: runtime shape, manifest, data
+  layout, PMTiles reader, HTTP contract, security, tests and limitations.
+- [Documentation index](docs/README.md) — reading order and planned pages.
 
 ## Licence
 
