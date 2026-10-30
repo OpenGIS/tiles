@@ -14,12 +14,21 @@ Layer configuration lives in `config/layers.json` and is validated at startup.
 
 ## Testing
 
-- Tests use Vitest.
-- Vite, MapLibre and Playwright arrive with the development harness.
+- Tests use Vitest for unit and integration coverage, and Playwright for the browser smoke test.
+- Run `npm test`, `npm run test:e2e` and `npm run format:check` before declaring a change complete.
+- Playwright starts its own tile server and Vite instance unless servers are already listening on the
+  configured ports; CI never reuses them.
+
+## Development harness
+
+- `npm run dev` starts the tile server and the Vite harness together.
+- `npm run dev:server` starts only the tile server on `127.0.0.1:11010`.
+- `npm run dev:harness` starts only Vite on `127.0.0.1:11011`.
 
 ## Ports
 
-Do not bind ports 5174 or 11000. Choose a free port in the 11001–11999 range and check it with
+The tile server uses `11010` and the harness uses `11011`. Do not bind ports `5174` or `11000`. For
+any other service, choose a free port in the 11001–11999 range and check it with
 `lsof -nP -iTCP:<port> -sTCP:LISTEN` before starting. Never stop or kill a process you did not
 start.
 
@@ -37,4 +46,4 @@ Do not run git write commands. The repository owner stages and commits manually.
 
 ## Verification
 
-Run `npm test` and `npm run format:check`.
+Run `npm test`, `npm run test:e2e` and `npm run format:check`.

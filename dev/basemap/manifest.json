@@ -1,0 +1,55 @@
+{
+  "basemap": {
+    "repository": "https://github.com/OpenGIS/basemap",
+    "commit": "c17627d5b841d896f1cb3592074b8b69a4e37939",
+    "styleSha256": "75ac376e5be89322c80ad65a58f583b924783757df12c3ca76aa23575dfe7449",
+    "spriteJsonSha256": "8a31c50b34ef12bad67ecfda74439e34cd2625ca0a2aac1d2f0c2b08d6bf0987",
+    "spritePngSha256": "6682c867b28288b3fd1ef70a517230ab486760c358c60904f0e2c89372f0bf24",
+    "sprite2xJsonSha256": "70392721654a7cc6b5af42b09397272b3db455b7b002dab4f2e6099829acc329",
+    "sprite2xPngSha256": "2b1dc9319bf458a0391baa914a2805cfbe554210293bb034e9e41eb4d647a4ce"
+  },
+  "fonts": {
+    "ranges": ["0-255.pbf", "256-511.pbf", "8192-8447.pbf"],
+    "stacks": [
+      "Noto Sans Regular",
+      "Open Sans Bold Italic,Noto Sans Regular",
+      "Open Sans Bold,Noto Sans Bold",
+      "Open Sans Italic,Noto Sans Italic",
+      "Open Sans Regular,Noto Sans Bold",
+      "Open Sans Regular,Noto Sans Regular",
+      "Open Sans Regular,Open Sans Light",
+      "Open Sans Semibold Italic,Noto Sans Bold",
+      "Open Sans Semibold Italic,Noto Sans Italic",
+      "Open Sans Semibold Italic,Noto Sans Regular",
+      "Open Sans Semibold,Noto Sans Bold",
+      "Open Sans Semibold,Noto Sans Regular"
+    ]
+  },
+  "tiles": {
+    "provider": "OpenFreeMap",
+    "version": "20261025_080012_pt",
+    "sourceUrl": "https://btrfs.openfreemap.com/areas/planet/20261025_080012_pt/tiles.pmtiles",
+    "sourceSha256": "35eaa415fcf4aa8f8740734d296ab35197cb5330d911aa2801e0aabeef491067",
+    "path": "dev/tiles/canmore.pmtiles",
+    "bbox": [-115.65, 50.95, -115.05, 51.35],
+    "minzoom": 0,
+    "maxzoom": 14,
+    "tileCount": 1168,
+    "bytes": 5358503,
+    "extractSha256": "85626527dc20a09be831691051e38dc98a7e95ae4415da86a3daa7fe1b3588ac",
+    "pmtilesVersion": "1.31.2",
+    "extractCommand": "pmtiles extract --bbox=-115.65,50.95,-115.05,51.35 --maxzoom=14 --download-threads=4 https://btrfs.openfreemap.com/areas/planet/20261025_080012_pt/tiles.pmtiles dev/tiles/canmore.pmtiles"
+  },
+  "map": {
+    "center": [-115.35, 51.15],
+    "zoom": 11.5
+  },
+  "licenses": [
+    "LICENSES/OpenMapTiles-LICENSE.md",
+    "LICENSES/ODbL-1.0.txt",
+    "LICENSES/Apache-2.0.txt",
+    "LICENSES/OFL-1.1.txt",
+    "LICENSES/BSD-3-Clause.txt",
+    "LICENSES/MIT.txt"
+  ]
+}

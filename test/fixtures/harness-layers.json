@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "server": { "host": "127.0.0.1", "port": 11010 },
+  "sources": {
+    "pois": {
+      "kind": "pmtiles",
+      "title": "Outdoor POIs",
+      "description": "Huts, shelters, viewpoints and other outdoor points of interest.",
+      "attribution": [
+        { "title": "OpenStreetMap", "href": "https://www.openstreetmap.org/copyright" }
+      ],
+      "archiveDir": "test/fixtures/empty/pois",
+      "minzoom": 12,
+      "maxzoom": 16
+    },
+    "routes": {
+      "kind": "pmtiles",
+      "title": "Outdoor routes",
+      "description": "Hiking and cycling route relations.",
+      "attribution": [
+        { "title": "OpenStreetMap", "href": "https://www.openstreetmap.org/copyright" }
+      ],
+      "archiveDir": "test/fixtures/empty/routes",
+      "minzoom": 8,
+      "maxzoom": 14
+    },
+    "paths": {
+      "kind": "pmtiles",
+      "title": "Outdoor paths",
+      "description": "Hiking paths and footways.",
+      "attribution": [
+        { "title": "OpenStreetMap", "href": "https://www.openstreetmap.org/copyright" }
+      ],
+      "archiveDir": "test/fixtures/empty/paths",
+      "minzoom": 9,
+      "maxzoom": 13
+    }
+  }
+}

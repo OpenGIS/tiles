@@ -1,0 +1,105 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+.panel {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 1;
+  width: min(18rem, calc(100vw - 1.5rem));
+  max-height: calc(100vh - 1.5rem);
+  overflow: auto;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgb(0 0 0 / 15%);
+  border-radius: 0.5rem;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 2px 12px rgb(0 0 0 / 18%);
+  color: #1b1b1b;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.panel h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.panel details {
+  margin: 0;
+}
+
+.panel summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.panel summary:focus-visible,
+.panel input:focus-visible {
+  outline: 2px solid #1f5f8b;
+  outline-offset: 2px;
+}
+
+#sources ul {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+#sources li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+#sources label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+#sources input {
+  margin: 0;
+}
+
+.status {
+  color: #5b5b5b;
+  font-size: 0.75rem;
+  text-transform: lowercase;
+}
+
+@media (prefers-color-scheme: dark) {
+  .panel {
+    border-color: rgb(255 255 255 / 20%);
+    background: rgb(32 32 32 / 94%);
+    color: #f2f2f2;
+  }
+
+  .status {
+    color: #c4c4c4;
+  }
+
+  .panel summary:focus-visible,
+  .panel input:focus-visible {
+    outline-color: #8ec9ee;
+  }
+}

@@ -1,0 +1,44 @@
+# Third-party notices
+
+This directory holds a vendored basemap style, its fonts and sprites. A small
+extract of OpenFreeMap vector tiles lives at `dev/tiles/canmore.pmtiles`. The
+following components and licences apply.
+
+## Attribution
+
+Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright),
+available under the [Open Database Licence](https://opendatacommons.org/licenses/odbl/1-0/).
+
+Vector tiles are provided by [OpenFreeMap](https://openfreemap.org). The style is
+© [OpenMapTiles](https://openmaptiles.org/); the cartography and visual design are
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+Keep the attribution visible when using this basemap. The style’s `attribution`
+source carries the attribution string used by the map renderer.
+
+## Components
+
+| Component               | Use                    | Licence                                                        |
+| ----------------------- | ---------------------- | -------------------------------------------------------------- |
+| OpenStreetMap data      | Tile data              | [ODbL-1.0](https://opendatacommons.org/licenses/odbl/1-0/)      |
+| OpenFreeMap             | Tile service           | [MIT](https://github.com/hyperknot/openfreemap/blob/main/LICENSE) |
+| OpenMapTiles style code | Style code             | [BSD-3-Clause](https://github.com/openmaptiles/openmaptiles/blob/master/LICENSE.md) |
+| OpenMapTiles            | Design and cartography | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)      |
+| Open Sans               | Font                   | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)       |
+| Noto Sans               | Font                   | [OFL-1.1](https://openfontlicense.org/open-font-license-official-text/) |
+| MapLibre GL JS          | Renderer               | [BSD-3-Clause](https://github.com/maplibre/maplibre-gl-js/blob/main/LICENSE.txt) |
+
+## Licence texts
+
+Full texts are provided under `LICENSES/`:
+
+- `LICENSES/OpenMapTiles-LICENSE.md` — OpenMapTiles code (BSD-3-Clause) and design (CC-BY-4.0), including the cartography attribution requirement.
+- `LICENSES/ODbL-1.0.txt` — Open Database Licence 1.0.
+- `LICENSES/Apache-2.0.txt` — Apache License 2.0.
+- `LICENSES/OFL-1.1.txt` — SIL Open Font License 1.1.
+- `LICENSES/BSD-3-Clause.txt` — BSD 3-Clause License.
+- `LICENSES/MIT.txt` — MIT License.
+
+The CC-BY-4.0 legal code is not duplicated as a separate file; the
+OpenMapTiles licence above refers to it, and the canonical text is available at
+<https://creativecommons.org/licenses/by/4.0/legalcode>.

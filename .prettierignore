@@ -5,4 +5,8 @@ coverage/
 test-results/
 playwright-report/
 package-lock.json
-dev/basemap/
+dev/basemap/fonts/
+dev/basemap/style.json
+dev/basemap/sprite*.json
+dev/basemap/LICENSES/
+dev/tiles/
