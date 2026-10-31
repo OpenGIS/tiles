@@ -53,6 +53,34 @@ describe('runCommand', () => {
     ).rejects.toThrow(/BUILD-FAILED: out of memory/);
   });
 
+  it('passes a timeout to child_process and reports a timed-out command', async () => {
+    const error = new Error('killed');
+    error.killed = true;
+    error.signal = 'SIGTERM';
+    error.stderr = '';
+    const execFileImpl = vi.fn().mockRejectedValue(error);
+
+    await expect(
+      runCommand('ssh', ['root@192.0.2.1', 'cloud-init status --wait'], {
+        execFileImpl,
+        timeoutMs: 1_000,
+      }),
+    ).rejects.toThrow(/Command timed out after 1000ms/);
+
+    expect(execFileImpl).toHaveBeenCalledWith(
+      'ssh',
+      ['root@192.0.2.1', 'cloud-init status --wait'],
+      {
+        cwd: undefined,
+        env: undefined,
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 1_000,
+        killSignal: 'SIGTERM',
+      },
+    );
+  });
+
   it('marks failures without a detail without a trailing colon', async () => {
     const error = new Error('');
     const execFileImpl = vi.fn().mockRejectedValue(error);

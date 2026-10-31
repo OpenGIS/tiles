@@ -33,10 +33,18 @@ export async function runCommand(
     env,
     encoding = 'utf8',
     maxBuffer = 16 * 1024 * 1024,
+    timeoutMs,
   } = {},
 ) {
+  const options = { cwd, env, encoding, maxBuffer };
+
+  if (timeoutMs !== undefined && timeoutMs !== null) {
+    options.timeout = timeoutMs;
+    options.killSignal = 'SIGTERM';
+  }
+
   try {
-    const result = await execFileImpl(command, args, { cwd, env, encoding, maxBuffer });
+    const result = await execFileImpl(command, args, options);
     return {
       stdout: result?.stdout ?? '',
       stderr: result?.stderr ?? '',
@@ -49,6 +57,18 @@ export async function runCommand(
         stderr: '',
         cause: error,
       });
+    }
+
+    if (error?.killed === true && timeoutMs !== undefined && timeoutMs !== null) {
+      throw new CommandError(
+        `Command timed out after ${timeoutMs}ms (${commandLine(command, args)})`,
+        {
+          command: commandLine(command, args),
+          exitCode: null,
+          stderr: String(error?.stderr ?? ''),
+          cause: error,
+        },
+      );
     }
 
     const stderr = error?.stderr ?? '';
