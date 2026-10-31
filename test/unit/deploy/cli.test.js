@@ -12,9 +12,22 @@ import {
 import { repoRoot } from '../../helpers/temp.mjs';
 
 const run = promisify(execFile);
+const cliPath = path.join(repoRoot, 'bin', 'ogis.mjs');
+const rejectBuildDepsLoader = path.join(
+  repoRoot,
+  'test',
+  'helpers',
+  'reject-build-deps-loader.mjs',
+);
 
 function cli(args) {
-  return run(process.execPath, [path.join(repoRoot, 'bin', 'ogis.mjs'), ...args], {
+  return run(process.execPath, [cliPath, ...args], {
+    cwd: repoRoot,
+  });
+}
+
+function cliWithoutBuildDeps(args) {
+  return run(process.execPath, ['--experimental-loader', rejectBuildDepsLoader, cliPath, ...args], {
     cwd: repoRoot,
   });
 }
@@ -114,6 +127,18 @@ describe('ogis CLI', () => {
     ['status', 'Usage: ogis status'],
   ])('prints help for %s', async (command, expected) => {
     const { stdout } = await cli([command, '--help']);
+    expect(stdout).toContain(expected);
+  });
+
+  it.each([
+    ['--help', 'Usage: ogis <command>'],
+    ['promote --help', 'Usage: ogis promote'],
+    ['rollback --help', 'Usage: ogis rollback'],
+    ['status --help', 'Usage: ogis status'],
+  ])('runs "%s" without loading build-only dependencies', async (command, expected) => {
+    const args = command.split(' ');
+    const { stdout } = await cliWithoutBuildDeps(args);
+
     expect(stdout).toContain(expected);
   });
 

@@ -396,6 +396,10 @@ function serverIPv6(server) {
   return server?.public_net?.ipv6?.ip ?? null;
 }
 
+function serverLocation(server) {
+  return server?.location?.name ?? server?.datacenter?.location?.name ?? null;
+}
+
 function serverLabel(server) {
   return `${server.name} (#${server.id}, ${server.server_type?.name ?? 'unknown type'}, ${
     serverIPv4(server) ?? 'no IPv4'
@@ -513,7 +517,7 @@ async function resolveTarget({
     }
 
     if (config.location) {
-      const location = server.datacenter?.location?.name;
+      const location = serverLocation(server);
       if (location !== config.location) {
         throw new ProvisionError(
           `Server ${server.name} is in ${location ?? 'an unknown location'}, expected ${config.location}`,
@@ -1249,7 +1253,7 @@ export async function runStatus({
   log(`IPv4: ${serverIPv4(server) ?? 'none'}`);
   log(`IPv6: ${serverIPv6(server) ?? 'none'}`);
   log(`Type: ${server.server_type?.name ?? 'unknown'}`);
-  log(`Location: ${server.datacenter?.location?.name ?? 'unknown'}`);
+  log(`Location: ${serverLocation(server) ?? 'unknown'}`);
   log(`Status: ${server.status ?? 'unknown'}`);
   log(`Image: ${server.image?.name ?? 'none'}`);
   log(`Protection: delete=${Boolean(protection.delete)} rebuild=${Boolean(protection.rebuild)}`);

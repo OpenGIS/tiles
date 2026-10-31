@@ -145,7 +145,42 @@ describe('runDeploy', () => {
     expect(out.text()).toContain('npm ci --omit=dev');
     expect(out.text()).toContain('systemctl');
     expect(out.text()).toContain('certbot');
+    expect(out.text()).toContain('Nginx cache: /var/cache/nginx');
+    expect(out.text()).toContain('Nginx cache owner: www-data:www-data');
+    for (const name of ['pois', 'routes', 'paths', 'contours']) {
+      expect(out.text()).toContain(`/var/cache/nginx/${name}`);
+    }
     expect(out.text()).toContain('No changes were made');
+  });
+
+  it('creates the nginx cache directories before installing and validating nginx', async () => {
+    for (const certExists of [false, true]) {
+      const execImpl = makeExec({ certExists });
+
+      await runDeploy(baseRun({ execImpl }));
+
+      const list = remotes(execImpl);
+      const cache = list.find((remote) => remote.includes('/var/cache/nginx'));
+      const install = list.findIndex(
+        (remote) =>
+          remote.includes('/etc/nginx/sites-available/tile.ogis.app') &&
+          remote.includes('base64 -d'),
+      );
+      const validation = indexOf(list, 'nginx -t');
+
+      expect(cache).toContain('sudo -n install -d -o www-data -g www-data -m 0755');
+      expect(cache).not.toMatch(/-o nginx|-g nginx/);
+      expect(cache).toContain("'/var/cache/nginx'");
+      for (const name of ['pois', 'routes', 'paths', 'contours']) {
+        expect(cache).toContain(`'/var/cache/nginx/${name}'`);
+      }
+
+      const cacheIndex = list.indexOf(cache);
+      expect(cacheIndex).toBeGreaterThanOrEqual(0);
+      expect(install).toBeGreaterThanOrEqual(0);
+      expect(cacheIndex).toBeLessThan(install);
+      expect(cacheIndex).toBeLessThan(validation);
+    }
   });
 
   it('rsyncs only runtime files and preserves server data', async () => {

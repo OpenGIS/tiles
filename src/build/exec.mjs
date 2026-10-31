@@ -11,17 +11,17 @@ export function commandLine(command, args) {
     .join(' ');
 }
 
-function firstLine(value) {
+function errorDetail(value, maxLines = 3) {
   if (value === undefined || value === null) {
     return '';
   }
 
-  return (
-    String(value)
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line !== '') ?? ''
-  );
+  const lines = String(value)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+
+  return lines.slice(-maxLines).join(' | ');
 }
 
 export async function runCommand(
@@ -72,7 +72,7 @@ export async function runCommand(
     }
 
     const stderr = error?.stderr ?? '';
-    const detail = firstLine(stderr) || firstLine(error?.message);
+    const detail = errorDetail(stderr) || errorDetail(error?.message);
     const exitCode = typeof error?.code === 'number' ? error.code : null;
     const suffix = detail === '' ? '' : `: ${detail}`;
 

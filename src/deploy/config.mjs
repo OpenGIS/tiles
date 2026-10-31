@@ -40,6 +40,10 @@ export function validHostname(value) {
   return HOSTNAME_PATTERN.test(String(value ?? '').trim());
 }
 
+export function validUsername(value) {
+  return USERNAME_PATTERN.test(String(value ?? '').trim());
+}
+
 export function validIPv4(value) {
   const parts = String(value ?? '')
     .trim()
@@ -86,7 +90,7 @@ export function resolveDeployConfig({ env, homedir = os.homedir(), requireHost =
   }
 
   const deployUser = optionalValue(env, 'DEPLOY_USER', 'deploy');
-  if (!USERNAME_PATTERN.test(deployUser)) {
+  if (!validUsername(deployUser)) {
     throw new DeployError(`DEPLOY_USER "${deployUser}" is not a valid Linux user name`);
   }
 

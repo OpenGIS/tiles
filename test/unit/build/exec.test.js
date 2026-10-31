@@ -53,6 +53,20 @@ describe('runCommand', () => {
     ).rejects.toThrow(/BUILD-FAILED: out of memory/);
   });
 
+  it('includes the trailing emergency line instead of only the first stderr line', async () => {
+    const error = new Error('Command failed');
+    error.code = 1;
+    error.stderr = [
+      'nginx: the configuration file /etc/nginx/nginx.conf syntax is ok',
+      'nginx: [emerg] open() "/var/cache/nginx/pois" failed (2: No such file or directory)',
+    ].join('\n');
+    const execFileImpl = vi.fn().mockRejectedValue(error);
+
+    await expect(
+      runCommand('ssh', ['deploy@tile.ogis.app', 'sudo nginx -t'], { execFileImpl }),
+    ).rejects.toThrow(/nginx: \[emerg\].*No such file or directory/);
+  });
+
   it('passes a timeout to child_process and reports a timed-out command', async () => {
     const error = new Error('killed');
     error.killed = true;

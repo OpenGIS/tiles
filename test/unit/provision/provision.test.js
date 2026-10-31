@@ -58,6 +58,7 @@ function makeServer(overrides = {}) {
       ipv6: { ip: '2a01:4f8:1:2::/64' },
     },
     server_type: { name: 'cx23' },
+    location: { name: 'nbg1' },
     datacenter: { location: { name: 'nbg1' } },
     image: { name: 'ubuntu-26.04' },
     protection: { delete: false, rebuild: false },
@@ -1037,10 +1038,38 @@ describe('runProvision', () => {
 
   it('rejects a server in a different location', async () => {
     const client = makeClient({
-      server: makeServer({ datacenter: { location: { name: 'fsn1' } } }),
+      server: makeServer({ location: { name: 'fsn1' } }),
     });
 
     await expect(runProvision(baseRun({ client, options: {} }))).rejects.toThrow(/expected nbg1/);
+  });
+
+  it('rejects a server in a different location using the legacy datacenter shape', async () => {
+    const server = makeServer({ datacenter: { location: { name: 'fsn1' } } });
+    delete server.location;
+    const client = makeClient({ server });
+
+    await expect(runProvision(baseRun({ client, options: {} }))).rejects.toThrow(/expected nbg1/);
+  });
+
+  it('accepts a server location from the legacy datacenter shape', async () => {
+    const server = makeServer();
+    delete server.location;
+    const client = makeClient({ server });
+
+    await expect(
+      runProvision(baseRun({ client, options: { dryRun: true } })),
+    ).resolves.toBeDefined();
+  });
+
+  it('accepts a server location from the top-level location shape', async () => {
+    const client = makeClient({
+      server: makeServer({ datacenter: undefined }),
+    });
+
+    await expect(
+      runProvision(baseRun({ client, options: { dryRun: true } })),
+    ).resolves.toBeDefined();
   });
 
   it('rejects a non-x86 server architecture', async () => {
@@ -1143,6 +1172,7 @@ describe('runStatus', () => {
     });
     expect(out.text()).toContain('IPv4: 128.140.70.114');
     expect(out.text()).toContain('Type: cx23');
+    expect(out.text()).toContain('Location: nbg1');
     expect(out.text()).toContain('Protection: delete=false rebuild=false');
     expect(fetchImpl).toHaveBeenCalledWith(
       'https://tile.ogis.app/health',
@@ -1150,6 +1180,24 @@ describe('runStatus', () => {
     );
     expect(client.rebuildServer).not.toHaveBeenCalled();
     expect(client.changeProtection).not.toHaveBeenCalled();
+  });
+
+  it('prints the location from the legacy datacenter shape', async () => {
+    const server = makeServer();
+    delete server.location;
+    const client = makeClient({ server });
+    const out = makeOut();
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    await runStatus({
+      config: baseConfig(),
+      client,
+      dnsImpl: dnsFor(),
+      out,
+      fetchImpl,
+    });
+
+    expect(out.text()).toContain('Location: nbg1');
   });
 
   it('runs from a minimal status environment without SSH keys', async () => {

@@ -2,7 +2,13 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { renderNginxConfig, renderSystemdUnit } from '../../../src/deploy/render.mjs';
+import {
+  DEFAULT_NGINX_CACHE_OWNER,
+  nginxCacheDirectories,
+  nginxCacheOwner,
+  renderNginxConfig,
+  renderSystemdUnit,
+} from '../../../src/deploy/render.mjs';
 import { loadConfig } from '../../../src/lib/config.mjs';
 import { repoRoot } from '../../helpers/temp.mjs';
 
@@ -82,6 +88,52 @@ describe('renderSystemdUnit', () => {
     };
 
     expect(renderSystemdUnit(options)).toBe(renderSystemdUnit(options));
+  });
+});
+
+describe('nginxCacheDirectories', () => {
+  it('lists the cache root and one directory per cached source', () => {
+    expect(nginxCacheDirectories(layers.sources)).toEqual([
+      '/var/cache/nginx',
+      '/var/cache/nginx/pois',
+      '/var/cache/nginx/routes',
+      '/var/cache/nginx/paths',
+      '/var/cache/nginx/contours',
+    ]);
+  });
+
+  it('honours a custom cache root and ignores sources without a cache', () => {
+    expect(
+      nginxCacheDirectories(
+        {
+          pois: { kind: 'pmtiles' },
+          labels: { kind: 'raster' },
+        },
+        { cacheRoot: '/srv/nginx/cache' },
+      ),
+    ).toEqual(['/srv/nginx/cache', '/srv/nginx/cache/pois']);
+  });
+
+  it('rejects unsafe cache roots', () => {
+    expect(() => nginxCacheDirectories(layers.sources, { cacheRoot: 'relative' })).toThrow(
+      /absolute path/,
+    );
+  });
+});
+
+describe('nginxCacheOwner', () => {
+  it('defaults to the www-data user and group used by Ubuntu nginx', () => {
+    expect(DEFAULT_NGINX_CACHE_OWNER).toBe('www-data');
+    expect(nginxCacheOwner()).toBe('www-data');
+  });
+
+  it('accepts another valid Linux user name', () => {
+    expect(nginxCacheOwner('nginx')).toBe('nginx');
+  });
+
+  it('rejects an unsafe cache owner', () => {
+    expect(() => nginxCacheOwner('www data')).toThrow(/not a valid Linux user name/);
+    expect(() => nginxCacheOwner('-o')).toThrow(/not a valid Linux user name/);
   });
 });
 

@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 
 import { runCommand } from '../src/build/exec.mjs';
 import { BuildError } from '../src/build/errors.mjs';
-import { runBuild } from '../src/build/pipeline.mjs';
 import { parseDeployOptions, parseSourceOptions, parseStatusOptions } from '../src/deploy/cli.mjs';
 import { DeployError, resolveDeployConfig, withServerOverride } from '../src/deploy/config.mjs';
 import { runDeploy } from '../src/deploy/deploy.mjs';
@@ -482,6 +481,7 @@ async function main() {
       return;
     }
 
+    const { runBuild } = await import('../src/build/pipeline.mjs');
     const results = await runBuild({
       repoRoot,
       configPath: process.env.CONFIG_PATH || path.join(repoRoot, 'config', 'layers.json'),

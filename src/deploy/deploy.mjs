@@ -4,7 +4,12 @@ import { runCommand } from '../build/exec.mjs';
 import { childEnvironment } from '../provision/provision.mjs';
 
 import { DeployError } from './config.mjs';
-import { renderNginxConfig, renderSystemdUnit } from './render.mjs';
+import {
+  nginxCacheDirectories,
+  nginxCacheOwner,
+  renderNginxConfig,
+  renderSystemdUnit,
+} from './render.mjs';
 import { describeRsync, detectRsync, rsyncArguments } from './rsync.mjs';
 import {
   base64WriteCommand,
@@ -28,7 +33,7 @@ function log(out, line = '') {
   out.write(`${line}\n`);
 }
 
-function planLines({ config, options, rsyncInfo }) {
+function planLines({ config, options, rsyncInfo, cacheDirectories, cacheOwner }) {
   const tls = options.skipCertbot
     ? 'use an existing certificate, or stay on HTTP'
     : 'obtain or reuse TLS';
@@ -41,6 +46,8 @@ function planLines({ config, options, rsyncInfo }) {
     `App: ${config.appDir} (data: ${config.dataDir})`,
     `Service: ${config.serviceName} on 127.0.0.1:${config.port}`,
     `Nginx: ${config.nginxSiteFile}`,
+    `Nginx cache: ${cacheDirectories.join(', ')}`,
+    `Nginx cache owner: ${cacheOwner}:${cacheOwner}`,
     `Certificate: ${tls}`,
     `Rsync: ${describeRsync(rsyncInfo)}`,
     '',
@@ -49,7 +56,8 @@ function planLines({ config, options, rsyncInfo }) {
     '  2. Rsync source, bin, config and package files; preserve data/ and server-only state',
     `  3. Install dependencies with npm ci --omit=dev as ${config.deployUser}`,
     '  4. Render and install the systemd unit, systemctl daemon-reload, enable --now and restart',
-    '  5. Render and install the nginx configuration, nginx -t before reload',
+    '  5. Create the nginx cache directories, render and install the nginx configuration, ' +
+      'nginx -t before reload',
     options.skipCertbot
       ? '  6. Skip certbot; reuse an existing certificate when present'
       : '  6. Check the certificate; obtain one with certbot when missing',
@@ -71,6 +79,13 @@ function npmCiCommand(config) {
 }
 
 const CERTBOT_RENEWAL_HOOK_PATH = '/etc/letsencrypt/renewal-hooks/deploy/ogis-reload-nginx';
+
+function nginxCacheDirectoryCommand(directories, owner = nginxCacheOwner()) {
+  return (
+    `sudo -n install -d -o ${quoteIfNeeded(owner)} -g ${quoteIfNeeded(owner)} -m 0755 ` +
+    directories.map((directory) => shellQuote(directory)).join(' ')
+  );
+}
 
 function certbotIssueCommand(config) {
   return (
@@ -538,8 +553,17 @@ export async function runDeploy({
     certbotWebroot: config.certbotWebroot,
   });
 
+  const cacheDirectories = nginxCacheDirectories(layersConfig.sources);
+  const cacheOwner = nginxCacheOwner();
+
   if (options.dryRun) {
-    for (const line of planLines({ config, options, rsyncInfo: resolvedRsync })) {
+    for (const line of planLines({
+      config,
+      options,
+      rsyncInfo: resolvedRsync,
+      cacheDirectories,
+      cacheOwner,
+    })) {
       log(out, line);
     }
 
@@ -616,6 +640,14 @@ export async function runDeploy({
   try {
     log(out, 'Install systemd unit');
     await installSystemdUnit({ config, unit, execImpl, env, state: serviceSnapshot });
+
+    log(out, 'Create nginx cache directories');
+    await remoteStep(
+      config,
+      nginxCacheDirectoryCommand(cacheDirectories, cacheOwner),
+      'Nginx cache directories',
+      { execImpl, env },
+    );
 
     if (!certExists) {
       log(out, 'Install HTTP-only nginx configuration for ACME');

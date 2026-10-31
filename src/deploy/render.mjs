@@ -1,8 +1,20 @@
-import { DeployError, validHostname } from './config.mjs';
+import { DeployError, validHostname, validUsername } from './config.mjs';
 
 const SOURCE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 const CACHE_BUDGET_GB = 20;
 const CONTOUR_CACHE_GB = 2;
+
+export const DEFAULT_NGINX_CACHE_ROOT = '/var/cache/nginx';
+export const DEFAULT_NGINX_CACHE_OWNER = 'www-data';
+
+export function nginxCacheOwner(value = DEFAULT_NGINX_CACHE_OWNER) {
+  const owner = String(value ?? '').trim();
+  if (!validUsername(owner)) {
+    throw new DeployError(`Nginx cache owner "${value}" is not a valid Linux user name`);
+  }
+
+  return owner;
+}
 
 function requirePort(value) {
   const port = Number(value);
@@ -65,6 +77,13 @@ function sourceNames(sources) {
   }
 
   return names;
+}
+
+export function nginxCacheDirectories(sources, { cacheRoot = DEFAULT_NGINX_CACHE_ROOT } = {}) {
+  const root = requirePath(cacheRoot, 'Cache root');
+  const names = sourceNames(sources);
+
+  return [root, ...names.map((name) => `${root}/${name}`)];
 }
 
 function cacheSizes({ pmtiles, contourCount }) {
@@ -303,7 +322,7 @@ export function renderNginxConfig({
   port = 11010,
   sources = {},
   tls = true,
-  cacheRoot = '/var/cache/nginx',
+  cacheRoot = DEFAULT_NGINX_CACHE_ROOT,
   certDir,
   certbotWebroot = '/var/www/certbot',
 } = {}) {
