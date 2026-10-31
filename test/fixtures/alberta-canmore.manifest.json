@@ -1,0 +1,30 @@
+{
+  "filename": "alberta-canmore.osm.pbf",
+  "description": "Canmore–Banff outdoor fixture clipped from the Geofabrik Alberta extract. Canmore and Banff lie in Alberta, so the British Columbia extract does not contain them.",
+  "sourceUrl": "https://download.geofabrik.de/north-america/canada/alberta-latest.osm.pbf",
+  "resolvedSourceUrl": "https://download.geofabrik.de/north-america/canada/alberta-261029.osm.pbf",
+  "sourceExtract": "Alberta",
+  "extractDate": "2026-10-29",
+  "observedDate": "2026-10-30",
+  "bbox": [-115.65, 50.95, -115.05, 51.35],
+  "sha256": "162c2c3ab63b2dc2888256074ec744b01734a15448b358e6865e1b237a2b7454",
+  "bytes": 3649040,
+  "extract": {
+    "tool": "osmium 1.19.1",
+    "strategy": "smart",
+    "strategyOptions": "types=multipolygon,route",
+    "command": "osmium extract --bbox -115.65,50.95,-115.05,51.35 --strategy smart --option types=multipolygon,route --set-bounds -O -o test/fixtures/alberta-canmore.osm.pbf <alberta-latest.osm.pbf>"
+  },
+  "contents": {
+    "nodes": 467707,
+    "ways": 29149,
+    "relations": 506
+  },
+  "attribution": {
+    "data": "© OpenStreetMap contributors",
+    "source": "Geofabrik",
+    "sourceUrl": "https://download.geofabrik.de/north-america/canada/alberta.html",
+    "licence": "ODbL-1.0",
+    "licenceUrl": "https://opendatacommons.org/licenses/odbl/1-0/"
+  }
+}

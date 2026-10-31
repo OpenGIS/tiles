@@ -3,7 +3,12 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ConfigError, loadConfig, validateConfig } from '../../src/lib/config.mjs';
+import {
+  ConfigError,
+  loadConfig,
+  resolveArchiveDir,
+  validateConfig,
+} from '../../src/lib/config.mjs';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp.mjs';
 
 const createdDirectories = [];
@@ -223,6 +228,51 @@ describe('validateConfig', () => {
     raw.sources.pois.attribution[0].href = 'www.openstreetmap.org';
 
     expect(() => validateConfig(raw, { repoRoot: '/srv/tiles' })).toThrow(/http or https/i);
+  });
+});
+
+describe('resolveArchiveDir', () => {
+  const root = '/srv/tiles';
+
+  it.each([
+    ['empty', ''],
+    ['blank', '   '],
+    ['the repository root', '.'],
+    ['a dot-prefixed root', './'],
+    ['parent traversal', '..'],
+    ['nested traversal', 'data/../outside'],
+    ['an interior dot segment', 'data/./pois'],
+    ['an escaping path', '../outside'],
+  ])('rejects %s', (_label, value) => {
+    expect(() => resolveArchiveDir(value, 'archiveDir', root)).toThrow(ConfigError);
+  });
+
+  it('explains an interior dot segment instead of calling it the repository root', () => {
+    expect(() => resolveArchiveDir('data/./pois', 'archiveDir', root)).toThrow(
+      /must not contain "\." path segments/,
+    );
+  });
+
+  it('accepts a name beginning with two dots', () => {
+    expect(resolveArchiveDir('..data/pois', 'archiveDir', root)).toBe(
+      path.join(root, '..data', 'pois'),
+    );
+  });
+
+  it('accepts a nested relative directory', () => {
+    expect(resolveArchiveDir('data/pois', 'archiveDir', root)).toBe(
+      path.join(root, 'data', 'pois'),
+    );
+  });
+
+  it('rejects absolute directories when they are not allowed', () => {
+    expect(() =>
+      resolveArchiveDir('/srv/data/pois', 'archiveDir', root, { allowAbsolute: false }),
+    ).toThrow(/relative directory/);
+  });
+
+  it('keeps absolute directories when they are allowed', () => {
+    expect(resolveArchiveDir('/srv/data/pois', 'archiveDir', root)).toBe('/srv/data/pois');
   });
 });
 

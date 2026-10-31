@@ -3,7 +3,7 @@ import { defineConfig } from 'vite';
 import { demPlugin } from './dev/vite-plugin-dem.mjs';
 import { pmtilesPlugin } from './dev/vite-plugin-pmtiles.mjs';
 
-const TILE_SERVER = 'http://127.0.0.1:11010';
+const TILE_SERVER = process.env.TILE_SERVER_URL ?? 'http://127.0.0.1:11010';
 
 export default defineConfig({
   root: 'dev',
@@ -11,7 +11,7 @@ export default defineConfig({
   plugins: [pmtilesPlugin(), demPlugin()],
   server: {
     host: '127.0.0.1',
-    port: 11011,
+    port: Number(process.env.HARNESS_PORT ?? 11011),
     strictPort: true,
     proxy: {
       '/health': TILE_SERVER,

@@ -42,7 +42,7 @@
       "attribution": [{ "title": "Mapterhorn", "href": "https://mapterhorn.com/attribution" }],
       "minzoom": 1,
       "maxzoom": 15,
-      "demUrl": "http://127.0.0.1:11011/dem/{z}/{x}/{y}.webp",
+      "demUrl": "http://127.0.0.1:11013/dem/{z}/{x}/{y}.webp",
       "encoding": "terrarium",
       "demMaxzoom": 12,
       "demTileSize": 512,

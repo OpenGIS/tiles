@@ -1,6 +1,22 @@
 {
   "version": 1,
   "server": { "host": "127.0.0.1", "port": 11010 },
+  "build": {
+    "planet": {
+      "date": "",
+      "url": "https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf",
+      "sha256": ""
+    },
+    "tools": {
+      "planetiler": {
+        "version": "0.10.2",
+        "url": "https://github.com/onthegomap/planetiler/releases/download/v0.10.2/planetiler.jar",
+        "sha256": "f310bd0413e2e4512b27f4046d418664e8e1d3bf31603c2a70e23de06c167e4d"
+      },
+      "pmtiles": "1.31.2"
+    },
+    "outputDir": "dist"
+  },
   "sources": {
     "pois": {
       "kind": "pmtiles",
@@ -11,7 +27,44 @@
       ],
       "archiveDir": "data/pois",
       "minzoom": 12,
-      "maxzoom": 16
+      "maxzoom": 16,
+      "build": {
+        "profile": "pois",
+        "minzoom": 0,
+        "maxzoom": 16,
+        "expressions": [
+          "nwr/tourism=alpine_hut,wilderness_hut",
+          "nwr/amenity=shelter",
+          "nwr/tourism=viewpoint",
+          "nwr/tourism=camp_site,camp_pitch",
+          "nwr/tourism=picnic_site",
+          "nwr/amenity=drinking_water",
+          "nwr/highway=trailhead",
+          "nwr/natural=saddle",
+          "nwr/amenity=ranger_station",
+          "nwr/historic=castle",
+          "nwr/tourism=information",
+          "nwr/amenity=parking",
+          "nwr/leisure=park",
+          "nwr/amenity=toilets",
+          "nwr/leisure=playground",
+          "nwr/amenity=ferry_terminal",
+          "nwr/man_made=lighthouse",
+          "nwr/leisure=ski_resort"
+        ],
+        "sampleTiles": [
+          { "z": 13, "x": 1471, "y": 2739 },
+          { "z": 13, "x": 1466, "y": 2735 }
+        ],
+        "verification": {
+          "layer": "outdoor_pois",
+          "requiredAttributes": ["kind", "name"]
+        },
+        "sizeFloor": {
+          "fixture": 4096,
+          "planet": 104857600
+        }
+      }
     },
     "routes": {
       "kind": "pmtiles",

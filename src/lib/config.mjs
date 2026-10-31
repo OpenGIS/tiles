@@ -3,10 +3,10 @@ import path from 'node:path';
 
 const SOURCE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 
-const CONFIG_KEYS = ['version', 'server', 'sources'];
+const CONFIG_KEYS = ['version', 'server', 'sources', 'build'];
 const SERVER_KEYS = ['host', 'port', 'publicBaseUrl', 'trustProxy'];
 const COMMON_SOURCE_KEYS = ['kind', 'title', 'description', 'attribution', 'minzoom', 'maxzoom'];
-const PMTILES_SOURCE_KEYS = [...COMMON_SOURCE_KEYS, 'archiveDir'];
+const PMTILES_SOURCE_KEYS = [...COMMON_SOURCE_KEYS, 'archiveDir', 'build'];
 const CONTOUR_SOURCE_KEYS = [
   ...COMMON_SOURCE_KEYS,
   'demUrl',
@@ -148,22 +148,44 @@ function resolveRepoRoot(repoRoot) {
   return path.resolve(repoRoot);
 }
 
-function resolveArchiveDir(archiveDir, label, repoRoot) {
-  if (path.isAbsolute(archiveDir)) {
-    return path.normalize(archiveDir);
+export function resolveArchiveDir(archiveDir, label, repoRoot, { allowAbsolute = true } = {}) {
+  if (typeof archiveDir !== 'string' || archiveDir.trim() === '') {
+    throw new ConfigError(`${label} must be a non-empty directory`);
   }
 
-  if (archiveDir.split(/[\\/]+/).includes('..')) {
-    throw new ConfigError(`${label} must not contain ".."`);
+  const value = archiveDir.trim();
+
+  if (path.isAbsolute(value)) {
+    if (!allowAbsolute) {
+      throw new ConfigError(`${label} must be a relative directory`);
+    }
+
+    return path.normalize(value);
   }
 
-  const resolved = path.resolve(repoRoot, archiveDir);
+  const segments = value.split(/[\\/]+/);
+  if (segments.includes('..')) {
+    throw new ConfigError(`${label} must not contain ".." path segments`);
+  }
+
+  if (segments.every((segment) => segment === '' || segment === '.')) {
+    throw new ConfigError(`${label} must not be the repository root`);
+  }
+
+  if (segments.includes('.')) {
+    throw new ConfigError(`${label} must not contain "." path segments`);
+  }
+
+  const resolved = path.resolve(repoRoot, value);
   const relative = path.relative(repoRoot, resolved);
 
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new ConfigError(`${label} resolves outside the repository root`);
   }
 
+  // Symlinked directories are resolved by the operating system at open time. A
+  // realpath check here would require the directory to exist, so containment is
+  // enforced on the configured path only.
   return resolved;
 }
 
