@@ -137,6 +137,7 @@ describe('validateBuildConfig', () => {
     ['a traversing profile file', (build) => (build.profileFile = '../routes.java')],
     ['a non-profile file', (build) => (build.profileFile = 'build/profiles/routes.txt')],
     ['an invalid heap size', (build) => (build.heap = 'lots')],
+    ['an invalid planet heap size', (build) => (build.heapPlanet = 'lots')],
     ['an unknown verification geometry', (build) => (build.verification.geometry = 'circle')],
   ])('rejects %s', (_label, mutate) => {
     const raw = makeBuildConfig();
@@ -232,6 +233,7 @@ describe('validateBuildConfig', () => {
         profileKind: 'java',
         profileFile: 'build/profiles/routes.java',
         heap: '2g',
+        heapPlanet: '8g',
         minzoom: 8,
         maxzoom: 14,
         expressions: ['r/route=*hiking*'],
@@ -251,6 +253,7 @@ describe('validateBuildConfig', () => {
       profileKind: 'java',
       profileFile: 'build/profiles/routes.java',
       heap: '2g',
+      heapPlanet: '8g',
       verification: {
         layer: 'outdoor_routes',
         geometry: 'line',
@@ -292,6 +295,8 @@ describe('loadBuildConfig', () => {
       profile: 'routes',
       profileKind: 'java',
       profileFile: 'build/profiles/routes.java',
+      heap: '2g',
+      heapPlanet: '8g',
       minzoom: 8,
       maxzoom: 14,
     });
@@ -299,6 +304,8 @@ describe('loadBuildConfig', () => {
       profile: 'paths',
       profileKind: 'java',
       profileFile: 'build/profiles/paths.java',
+      heap: '2g',
+      heapPlanet: '8g',
       minzoom: 9,
       maxzoom: 13,
     });

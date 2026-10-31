@@ -34,6 +34,10 @@ const VALUE_FLAGS = new Map([
   ['planet-sha256', 'planetSha256'],
   ['archive', 'archive'],
   ['output-dir', 'outputDir'],
+  ['build-server-type', 'buildServerType'],
+  ['build-location', 'buildLocation'],
+  ['build-image', 'buildImage'],
+  ['build-name', 'buildName'],
 ]);
 
 const BOOLEAN_FLAGS = new Map([
@@ -45,13 +49,19 @@ const BOOLEAN_FLAGS = new Map([
   ['keep-work', 'keepWork'],
   ['allow-unverified-install', 'allowUnverifiedInstall'],
   ['force', 'force'],
+  ['remote', 'remote'],
+  ['keep-build-box', 'keepBuildBox'],
+  ['no-destroy', 'noDestroy'],
+  ['no-transfer', 'noTransfer'],
+  ['dry-run', 'dryRun'],
+  ['yes', 'yes'],
   ['help', 'help'],
 ]);
 
 const USAGE = `Usage: ogis <command> [options]
 
 Commands:
-  build       Build the configured tile sources
+  build       Build the configured tile sources, locally or on a remote build box
   provision   Rebuild the tile server from cloud-init
   deploy      Deploy the code, service and nginx configuration
   promote     Promote an incoming archive on the server
@@ -81,7 +91,22 @@ Options:
   --allow-unverified-install  Install even when verification was skipped
   --keep-work              Keep the temporary work directory
   --force                  Download tools and inputs again
-  --help                   Show this help`;
+  --remote                 Build on a disposable Hetzner Cloud build box
+  --yes                    Confirm creating the billable build box
+  --dry-run                Print the remote plan and make no changes
+  --keep-build-box         Keep the remote build box after the build
+  --no-destroy             Alias for --keep-build-box
+  --no-transfer            Build remotely but skip the archive transfer
+  --build-server-type=<t>  Build box type (default cpx62)
+  --build-location=<l>     Build box location (default nbg1)
+  --build-image=<image>    Build box image (default ubuntu-26.04)
+  --build-name=<name>      Build box name (default timestamped)
+  --help                   Show this help
+
+Environment:
+  HCLOUD_TOKEN, TILE_SERVER_HOST, TILE_SERVER_IP, SSH_PRIVATE_KEY_PATH,
+  BUILD_SSH_PRIVATE_KEY_PATH, BUILD_SERVER_TYPE, BUILD_SERVER_LOCATION,
+  BUILD_SERVER_IMAGE, KEEP_BUILD_BOX`;
 
 const PROVISION_USAGE = `Usage: ogis provision [options]
 
@@ -176,6 +201,10 @@ function parseBuildOptions(argv) {
     const value = inlineValue ?? argv[index + 1];
     if (value === undefined || value.startsWith('--')) {
       throw new BuildError(`--${name} requires a value`);
+    }
+
+    if (value.trim() === '') {
+      throw new BuildError(`--${name} requires a non-empty value`);
     }
 
     if (inlineValue === null) {
@@ -481,10 +510,43 @@ async function main() {
       return;
     }
 
+    const remoteOnly = [
+      ['yes', 'yes'],
+      ['dryRun', 'dry-run'],
+      ['keepBuildBox', 'keep-build-box'],
+      ['noDestroy', 'no-destroy'],
+      ['noTransfer', 'no-transfer'],
+      ['buildServerType', 'build-server-type'],
+      ['buildLocation', 'build-location'],
+      ['buildImage', 'build-image'],
+      ['buildName', 'build-name'],
+    ];
+    const remoteOnlyFlag = remoteOnly.find(([name]) => Object.hasOwn(options, name));
+    if (!options.remote && remoteOnlyFlag) {
+      throw new BuildError(`--${remoteOnlyFlag[1]} requires --remote`);
+    }
+
+    const env = await loadEnvironment({ envPath: path.join(repoRoot, '.env') });
+    const configPath = env.CONFIG_PATH || path.join(repoRoot, 'config', 'layers.json');
+
+    if (options.remote) {
+      const { runRemoteBuild } = await import('../src/build/remote.mjs');
+
+      await runRemoteBuild({
+        repoRoot,
+        configPath,
+        options,
+        env,
+      });
+
+      return;
+    }
+
     const { runBuild } = await import('../src/build/pipeline.mjs');
     const results = await runBuild({
       repoRoot,
-      configPath: process.env.CONFIG_PATH || path.join(repoRoot, 'config', 'layers.json'),
+      configPath,
+      env,
       ...options,
     });
 

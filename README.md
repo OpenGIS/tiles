@@ -65,6 +65,35 @@ the input, applies one shared osmium filter, runs the Planetiler profile, repair
 verifies the archive and sample tiles, and writes a per-source manifest. Flags, profiles, verification
 rules and the Alberta Canmore fixture are in [docs/5.pipelines.md](docs/5.pipelines.md).
 
+### Remote builds
+
+`--remote` builds on a disposable Hetzner Cloud box and transfers each pair to the tile server's
+`data/incoming/` directory. Use `--dry-run` to inspect the plan; creating a box needs `--yes` because
+the box is billable while it exists. The default `cpx62` box has the 640 GB disk a filtered planet
+build needs, while the tile server remains a `cx23` that is upgraded manually to `cx33` when its data
+disk fills.
+
+- `--keep-build-box` (or `--no-destroy`) leaves the box running after a successful build; delete it
+  manually when finished.
+- `--no-transfer` builds and keeps the box because the only output would otherwise be destroyed.
+- A failure before the build starts destroys the box unless it is kept; a failure during the build
+  keeps the box and log for inspection.
+- Name-based cleanup only deletes a server labelled exactly `managed-by=ogis-tiles` and
+  `role=build-box`.
+
+The preflight checks planet pins or the fixture, that `CONFIG_PATH`/`--fixture`/`--planet-pbf` exist
+locally, the destination disk, and the restricted build key before creating anything. `.env*` files
+are excluded from the sync at any depth. The local preflight needs rsync; rsync 3.2.3 or newer uses
+`--mkpath`, while macOS openrsync falls back to a write probe at the `rrsync` root without
+`--mkpath`. Install Homebrew rsync for the per-source probe.
+
+`TILE_DATA_DIR` and `TILE_INCOMING_DIR` must match the provisioned `/opt/ogis-tiles/data` and
+`/opt/ogis-tiles/data/incoming` paths because the build key is fixed to that `rrsync` root. Planet
+builds use `heapPlanet`, overridable with `PLANET_BUILD_HEAP`; empty values are not forwarded.
+`BUILD_DESTINATION_MIN_FREE_BYTES`, `BUILD_BOX_TIMEOUT_MS`, `BUILD_BOX_TRANSFER_TIMEOUT_MS` and
+`TILE_APP_DIR` tune the preflight and timeouts. After a multi-source build, promote one source at a
+time with `ogis promote --source=<name>`.
+
 ## Configuration
 
 `config/layers.json` is the single source of truth for the server and every source. Set

@@ -218,6 +218,118 @@ describe('createHcloudClient', () => {
     await expect(clientWith(fetchImpl).findImageByName('ubuntu-26.04', 'x86')).resolves.toBeNull();
   });
 
+  it('creates a build server without returning the root password', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      mockResponse({
+        server: SERVER,
+        action: { id: 9, status: 'running' },
+        root_password: 'must-not-leak',
+      }),
+    );
+    const client = clientWith(fetchImpl);
+
+    const result = await client.createServer({
+      name: 'ogis-build-test',
+      serverType: 'cpx62',
+      location: 'nbg1',
+      image: 'ubuntu-26.04',
+      userData: '#cloud-config\n',
+      labels: { role: 'build-box' },
+    });
+
+    expect(result).toEqual({ server: SERVER, action: { id: 9, status: 'running' } });
+    const [url, options] = fetchImpl.mock.calls[0];
+    expect(new URL(url).pathname).toBe('/v1/servers');
+    expect(options.method).toBe('POST');
+    expect(JSON.parse(options.body)).toEqual({
+      name: 'ogis-build-test',
+      server_type: 'cpx62',
+      location: 'nbg1',
+      image: 'ubuntu-26.04',
+      user_data: '#cloud-config\n',
+      start_after_create: true,
+      labels: { role: 'build-box' },
+    });
+  });
+
+  it('includes registered recovery SSH keys in the create request', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      mockResponse({
+        server: SERVER,
+        action: { id: 9, status: 'running' },
+      }),
+    );
+    const client = clientWith(fetchImpl);
+
+    await client.createServer({
+      name: 'ogis-build-test',
+      serverType: 'cpx62',
+      location: 'nbg1',
+      image: 'ubuntu-26.04',
+      userData: '#cloud-config\n',
+      sshKeys: [7],
+    });
+
+    const [, options] = fetchImpl.mock.calls[0];
+    expect(JSON.parse(options.body).ssh_keys).toEqual([7]);
+  });
+
+  it('lists and creates SSH keys for the recovery path', async () => {
+    const fetchImpl = vi.fn(async (url, options) => {
+      const parsed = new URL(url);
+
+      if (parsed.pathname === '/v1/ssh_keys' && options.method === 'GET') {
+        return mockResponse({
+          ssh_keys: [{ id: 7, name: 'existing', public_key: 'ssh-ed25519 AAAA existing' }],
+          meta: { pagination: { next_page: null } },
+        });
+      }
+
+      if (parsed.pathname === '/v1/ssh_keys' && options.method === 'POST') {
+        return mockResponse({
+          ssh_key: { id: 8, name: 'ogis-tiles-deploy', public_key: 'ssh-ed25519 BBBB new' },
+        });
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const client = clientWith(fetchImpl);
+
+    await expect(client.listSshKeys()).resolves.toHaveLength(1);
+    await expect(
+      client.createSshKey({ name: 'ogis-tiles-deploy', publicKey: 'ssh-ed25519 BBBB new' }),
+    ).resolves.toMatchObject({ id: 8 });
+
+    const [, options] = fetchImpl.mock.calls[1];
+    expect(JSON.parse(options.body)).toEqual({
+      name: 'ogis-tiles-deploy',
+      public_key: 'ssh-ed25519 BBBB new',
+    });
+  });
+
+  it('validates the inputs needed to create a server', async () => {
+    const client = clientWith(vi.fn());
+
+    await expect(client.createServer({ name: 'x' })).rejects.toThrow(/server type is required/);
+    await expect(
+      client.createServer({ name: 'x', serverType: 'cpx62', location: 'nbg1', image: 'x' }),
+    ).rejects.toThrow(/user_data is required/);
+  });
+
+  it('deletes a server by id and validates the id', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(mockResponse({ action: { id: 10, status: 'running' } }));
+    const client = clientWith(fetchImpl);
+
+    await expect(client.deleteServer(42)).resolves.toEqual({ id: 10, status: 'running' });
+    const [url, options] = fetchImpl.mock.calls[0];
+    expect(new URL(url).pathname).toBe('/v1/servers/42');
+    expect(options.method).toBe('DELETE');
+
+    await expect(client.deleteServer('42')).rejects.toThrow(/positive server id/);
+  });
+
   it('polls an action until it succeeds', async () => {
     const fetchImpl = vi
       .fn()

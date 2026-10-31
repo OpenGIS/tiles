@@ -81,6 +81,7 @@
         "profileKind": "java",
         "profileFile": "build/profiles/routes.java",
         "heap": "2g",
+        "heapPlanet": "8g",
         "minzoom": 8,
         "maxzoom": 14,
         "expressions": [
@@ -119,6 +120,7 @@
         "profileKind": "java",
         "profileFile": "build/profiles/paths.java",
         "heap": "2g",
+        "heapPlanet": "8g",
         "minzoom": 9,
         "maxzoom": 13,
         "expressions": [

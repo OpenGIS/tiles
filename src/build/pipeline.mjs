@@ -38,7 +38,7 @@ import { repairHeader, serialiseHeader } from './header.mjs';
 import { renderExpressionsFile, sourceExpressionUnion } from './expressions.mjs';
 import { installArchives } from './install.mjs';
 import { createBuildManifest } from './manifest.mjs';
-import { deriveMinZoom, resolveProfile } from './profiles.mjs';
+import { deriveMinZoom, resolveProfile, resolveProfileHeap } from './profiles.mjs';
 import { resolveArchiveDir } from '../lib/config.mjs';
 import { PmtilesReader } from '../lib/pmtiles.mjs';
 import {
@@ -160,7 +160,7 @@ function selectSources(config, only) {
   }
 
   for (const name of requested) {
-    if (!config.sources[name]) {
+    if (!Object.hasOwn(config.sources, name)) {
       throw new BuildConfigError(`Source "${name}" has no build profile`);
     }
   }
@@ -819,7 +819,7 @@ async function buildSource({
     const profileArgs =
       profile.kind === 'java'
         ? javaProfileArgs({
-            heap: profile.heap,
+            heap: resolveProfileHeap(profile, { mode: planet.mode, env }),
             jarPath: planetiler.path,
             profilePath: profile.filePath,
             osmPath: buildPbf,

@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { normaliseHeap } from './config.mjs';
 import { BuildError } from './errors.mjs';
 import { pathExists } from './fs.mjs';
 
@@ -70,6 +71,17 @@ export async function resolveProfile(repoRoot, profile, overrides = {}) {
     file,
     layer: overrides.layer ?? entry.layer,
     heap: overrides.heap ?? DEFAULT_HEAP,
+    ...(overrides.heapPlanet === undefined ? {} : { heapPlanet: overrides.heapPlanet }),
     filePath,
   };
+}
+
+export function resolveProfileHeap(profile, { mode = 'fixture', env = {}, explicitHeap } = {}) {
+  const override =
+    mode === 'planet'
+      ? String(explicitHeap ?? env.PLANET_BUILD_HEAP ?? profile.heapPlanet ?? '').trim()
+      : '';
+  const heap = override === '' ? profile.heap : override;
+
+  return normaliseHeap(heap, 'Java heap') ?? DEFAULT_HEAP;
 }

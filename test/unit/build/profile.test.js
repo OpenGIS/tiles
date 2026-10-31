@@ -3,10 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
-  deriveMinZoom,
   describeProfile,
+  deriveMinZoom,
   profileNames,
   resolveProfile,
+  resolveProfileHeap,
 } from '../../../src/build/profiles.mjs';
 import { BuildError } from '../../../src/build/errors.mjs';
 
@@ -172,5 +173,28 @@ describe('profile registry', () => {
 
     expect(profile.layer).toBe('outdoor_pois');
     expect(profile.filePath).toMatch(/build\/profiles\/pois\.yml$/);
+  });
+
+  it('uses the fixture heap unless a planet override is configured', async () => {
+    const profile = await resolveProfile(process.cwd(), 'routes', {
+      heap: '2g',
+      heapPlanet: '8g',
+    });
+
+    expect(resolveProfileHeap(profile, { mode: 'fixture' })).toBe('2g');
+    expect(resolveProfileHeap(profile, { mode: 'planet' })).toBe('8g');
+    expect(resolveProfileHeap(profile, { mode: 'planet', env: { PLANET_BUILD_HEAP: '12g' } })).toBe(
+      '12g',
+    );
+    expect(() =>
+      resolveProfileHeap(profile, { mode: 'planet', env: { PLANET_BUILD_HEAP: 'lots' } }),
+    ).toThrow(/heap size/);
+  });
+
+  it('defaults the planet heap to the fixture heap without an override', async () => {
+    const profile = await resolveProfile(process.cwd(), 'routes', { heap: '2g' });
+
+    expect(resolveProfileHeap(profile, { mode: 'planet' })).toBe('2g');
+    expect(resolveProfileHeap(profile, { mode: 'planet', explicitHeap: '6g' })).toBe('6g');
   });
 });

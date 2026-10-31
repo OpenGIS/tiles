@@ -193,7 +193,12 @@ function keyPath(env, name, { required, homedir, fallback = '' }) {
   return raw === '' ? '' : expandHome(raw, homedir);
 }
 
-export function resolveConfig({ env, homedir = os.homedir(), requireSshKeys = false } = {}) {
+export function resolveConfig({
+  env,
+  homedir = os.homedir(),
+  requireSshKeys = false,
+  requireBuildKey = requireSshKeys,
+} = {}) {
   if (env === undefined || env === null) {
     throw new ProvisionError('Provisioning environment is required');
   }
@@ -251,7 +256,7 @@ export function resolveConfig({ env, homedir = os.homedir(), requireSshKeys = fa
     homedir,
   });
   const buildPrivateKeyPath = keyPath(env, 'BUILD_SSH_PRIVATE_KEY_PATH', {
-    required: requireSshKeys,
+    required: requireBuildKey,
     homedir,
   });
   const deployPublicKeyPath = keyPath(env, 'SSH_PUBLIC_KEY_PATH', {

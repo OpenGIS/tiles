@@ -20,6 +20,7 @@ const SOURCE_BUILD_KEYS = [
   'profileKind',
   'profileFile',
   'heap',
+  'heapPlanet',
   'minzoom',
   'maxzoom',
   'expressions',
@@ -405,7 +406,7 @@ function validateProfileFile(value, label) {
   return file;
 }
 
-function validateHeap(value, label) {
+export function normaliseHeap(value, label = 'heap') {
   if (value === undefined) {
     return undefined;
   }
@@ -434,7 +435,8 @@ function validateSourceBuild(name, source) {
 
   const profileKind = validateProfileKind(source.build.profileKind, `${label}.profileKind`);
   const profileFile = validateProfileFile(source.build.profileFile, `${label}.profileFile`);
-  const heap = validateHeap(source.build.heap, `${label}.heap`);
+  const heap = normaliseHeap(source.build.heap, `${label}.heap`);
+  const heapPlanet = normaliseHeap(source.build.heapPlanet, `${label}.heapPlanet`);
 
   const minzoom = requireInteger(source.build.minzoom, `${label}.minzoom`, 0, 26);
   const maxzoom = requireInteger(source.build.maxzoom, `${label}.maxzoom`, 0, 26);
@@ -448,6 +450,7 @@ function validateSourceBuild(name, source) {
     ...(profileKind === undefined ? {} : { profileKind }),
     ...(profileFile === undefined ? {} : { profileFile }),
     ...(heap === undefined ? {} : { heap }),
+    ...(heapPlanet === undefined ? {} : { heapPlanet }),
     minzoom,
     maxzoom,
     expressions: validateExpressions(source.build.expressions, `${label}.expressions`),

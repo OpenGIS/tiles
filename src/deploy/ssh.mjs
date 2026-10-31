@@ -4,6 +4,17 @@ import { childEnvironment } from '../provision/provision.mjs';
 import { DeployError } from './config.mjs';
 
 const SAFE_SHELL_ARGUMENT = /^[A-Za-z0-9_@%+=:,./-]+$/;
+const PRIVATE_KEY_BLOCK = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g;
+
+export function redactRemoteError(message, remoteCommand) {
+  let text = String(message ?? '');
+
+  if (remoteCommand !== undefined && remoteCommand !== null && String(remoteCommand) !== '') {
+    text = text.split(String(remoteCommand)).join('[remote command redacted]');
+  }
+
+  return text.replace(PRIVATE_KEY_BLOCK, '[private key redacted]');
+}
 
 export function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
@@ -34,6 +45,15 @@ export function sshOptions(config) {
     'ServerAliveCountMax=4',
   );
 
+  if (config.knownHostsPath) {
+    options.push(
+      '-o',
+      `UserKnownHostsFile=${config.knownHostsPath}`,
+      '-o',
+      'GlobalKnownHostsFile=/dev/null',
+    );
+  }
+
   return options;
 }
 
@@ -58,8 +78,9 @@ export async function runRemote(
     });
   } catch (error) {
     const description = label ?? 'SSH command';
+    const detail = redactRemoteError(error.message, remoteCommand);
     throw new DeployError(
-      `${description} failed on ${config.deployUser}@${config.targetHost}: ${error.message}`,
+      `${description} failed on ${config.deployUser}@${config.targetHost}: ${detail}`,
       { cause: error },
     );
   }

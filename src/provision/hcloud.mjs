@@ -363,6 +363,98 @@ export function createHcloudClient({
     );
   }
 
+  async function createServer({
+    name,
+    serverType,
+    location,
+    image,
+    userData,
+    labels,
+    sshKeys,
+    startAfterCreate = true,
+  } = {}) {
+    if (typeof name !== 'string' || name.trim() === '') {
+      throw fail('A server name is required');
+    }
+
+    if (typeof serverType !== 'string' || serverType.trim() === '') {
+      throw fail('A server type is required');
+    }
+
+    if (typeof location !== 'string' || location.trim() === '') {
+      throw fail('A location is required');
+    }
+
+    if (typeof image !== 'string' || image.trim() === '') {
+      throw fail('An image is required');
+    }
+
+    if (typeof userData !== 'string' || userData.trim() === '') {
+      throw fail('Cloud-init user_data is required');
+    }
+
+    const data = await request('POST', '/servers', {
+      body: {
+        name: name.trim(),
+        server_type: serverType.trim(),
+        location: location.trim(),
+        image: image.trim(),
+        user_data: userData,
+        start_after_create: Boolean(startAfterCreate),
+        ...(labels === undefined ? {} : { labels }),
+        ...(sshKeys === undefined ? {} : { ssh_keys: sshKeys }),
+      },
+    });
+
+    // The response may include root_password. It is deliberately discarded: the build box installs
+    // the deploy public key through cloud-init, and secrets must never reach logs or the terminal.
+    return { server: data?.server ?? null, action: data?.action ?? null };
+  }
+
+  async function listSshKeys() {
+    const keys = [];
+    let page = 1;
+
+    for (;;) {
+      const data = await request('GET', '/ssh_keys', {
+        query: { page, per_page: 50 },
+      });
+
+      keys.push(...(data?.ssh_keys ?? []));
+      const nextPage = data?.meta?.pagination?.next_page ?? null;
+      if (!nextPage) {
+        return keys;
+      }
+
+      page = nextPage;
+    }
+  }
+
+  async function createSshKey({ name, publicKey } = {}) {
+    if (typeof name !== 'string' || name.trim() === '') {
+      throw fail('An SSH key name is required');
+    }
+
+    if (typeof publicKey !== 'string' || publicKey.trim() === '') {
+      throw fail('An SSH public key is required');
+    }
+
+    const data = await request('POST', '/ssh_keys', {
+      body: { name: name.trim(), public_key: publicKey.trim() },
+    });
+
+    return data?.ssh_key ?? null;
+  }
+
+  async function deleteServer(id) {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw fail(`A positive server id is required to delete a server (received "${id}")`);
+    }
+
+    const data = await request('DELETE', `/servers/${id}`);
+    return data?.action ?? null;
+  }
+
   async function rebuildServer(id, { image, userData } = {}) {
     if (image === undefined || image === null || image === '') {
       throw fail('An image is required to rebuild a server');
@@ -499,6 +591,10 @@ export function createHcloudClient({
     findServerByName,
     getServer,
     findImageByName,
+    listSshKeys,
+    createSshKey,
+    createServer,
+    deleteServer,
     rebuildServer,
     waitForAction,
     changeProtection,

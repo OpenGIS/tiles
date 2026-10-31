@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   base64WriteCommand,
   quoteIfNeeded,
+  redactRemoteError,
   remoteFileExists,
   rsyncSshCommand,
+  runRemote,
   shellQuote,
   sshOptions,
 } from '../../../src/deploy/ssh.mjs';
@@ -76,6 +78,36 @@ describe('base64WriteCommand', () => {
     expect(command).toContain("sudo tee '/etc/nginx/sites-available/my tile' >/dev/null");
     expect(command).toContain("sudo chmod 0644 '/etc/nginx/sites-available/my tile'");
     expect(command).toContain("sudo chown root:root '/etc/nginx/sites-available/my tile'");
+  });
+});
+
+describe('redactRemoteError', () => {
+  it('removes the remote command and private key material from an SSH error', () => {
+    const material =
+      '-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----';
+    const remoteCommand = `printf %s ${Buffer.from(material).toString('base64')} | base64 -d`;
+    const message = `Command failed (ssh deploy@example "${remoteCommand}"): ${material}`;
+
+    const redacted = redactRemoteError(message, remoteCommand);
+
+    expect(redacted).toContain('[remote command redacted]');
+    expect(redacted).toContain('[private key redacted]');
+    expect(redacted).not.toContain('secret');
+    expect(redacted).not.toContain(Buffer.from(material).toString('base64'));
+  });
+
+  it('does not include the remote command in runRemote errors', async () => {
+    const remoteCommand = 'printf secret-key-material';
+    const execImpl = vi.fn(async () => {
+      throw new Error(`Command failed (ssh deploy@example "${remoteCommand}")`);
+    });
+
+    await expect(
+      runRemote(CONFIG, remoteCommand, {
+        execImpl,
+        env: { PATH: '/usr/bin' },
+      }),
+    ).rejects.toThrow(/remote command redacted/);
   });
 });
 

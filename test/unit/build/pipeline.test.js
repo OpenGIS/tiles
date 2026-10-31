@@ -294,6 +294,7 @@ describe('runBuild validation', () => {
 
   it.each([
     ['an empty --only', { only: '' }, /--only/],
+    ['a prototype --only', { only: '__proto__,constructor' }, /has no build profile/],
     ['an empty --fixture', { fixture: '   ' }, /--fixture/],
     ['an invalid planet URL', { planetUrl: 'ftp://example.com/planet.osm.pbf' }, /http/],
     ['an uppercase planet SHA', { planetSha256: 'A'.repeat(64) }, /lowercase/],
