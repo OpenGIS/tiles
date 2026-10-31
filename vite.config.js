@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 
+import { demPlugin } from './dev/vite-plugin-dem.mjs';
 import { pmtilesPlugin } from './dev/vite-plugin-pmtiles.mjs';
 
 const TILE_SERVER = 'http://127.0.0.1:11010';
@@ -7,7 +8,7 @@ const TILE_SERVER = 'http://127.0.0.1:11010';
 export default defineConfig({
   root: 'dev',
   publicDir: 'basemap',
-  plugins: [pmtilesPlugin()],
+  plugins: [pmtilesPlugin(), demPlugin()],
   server: {
     host: '127.0.0.1',
     port: 11011,
@@ -19,6 +20,7 @@ export default defineConfig({
       '/pois': TILE_SERVER,
       '/routes': TILE_SERVER,
       '/paths': TILE_SERVER,
+      '/contours': TILE_SERVER,
     },
   },
 });

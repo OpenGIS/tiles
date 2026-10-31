@@ -1,0 +1,81 @@
+{
+  "description": "Mapterhorn terrarium DEM 3x3 fixture centred on Canmore, Alberta.",
+  "source": "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
+  "attribution": {
+    "title": "Mapterhorn",
+    "href": "https://mapterhorn.com/attribution"
+  },
+  "licence": {
+    "name": "Mapterhorn DEM",
+    "note": "Committed for offline tests; see the Mapterhorn attribution page for upstream data sources and terms."
+  },
+  "committedForOfflineTests": true,
+  "zoom": 12,
+  "minzoom": 12,
+  "maxzoom": 12,
+  "tileSize": 512,
+  "encoding": "terrarium",
+  "format": "webp",
+  "bbox": {
+    "west": -115.48828125,
+    "south": 51.06901665960391,
+    "east": -115.224609375,
+    "north": 51.234407351634594
+  },
+  "tiles": [
+    {
+      "path": "12/734/1367.webp",
+      "bytes": 97516,
+      "sha256": "0fbb5200cb6b8f6dc211addbc568be2c5f7ea12a38696e50694b537c91e20e50",
+      "url": "https://tiles.mapterhorn.com/12/734/1367.webp"
+    },
+    {
+      "path": "12/734/1368.webp",
+      "bytes": 102392,
+      "sha256": "1626c1170df00dcdcdb2c1b030d4ebc6a88c5803be41c0b317c415cf20b0ba21",
+      "url": "https://tiles.mapterhorn.com/12/734/1368.webp"
+    },
+    {
+      "path": "12/734/1369.webp",
+      "bytes": 119700,
+      "sha256": "1db77dc90eed7fa848a4bb9fa919a5220a4fbd51132250cf2aa29edd9fec9a62",
+      "url": "https://tiles.mapterhorn.com/12/734/1369.webp"
+    },
+    {
+      "path": "12/735/1367.webp",
+      "bytes": 100746,
+      "sha256": "5e028c2e19a5b704bcbd17d07795e05a5587744d8ea2e5d739a8e17652e25808",
+      "url": "https://tiles.mapterhorn.com/12/735/1367.webp"
+    },
+    {
+      "path": "12/735/1368.webp",
+      "bytes": 115386,
+      "sha256": "f9e8537990b8c734c025f3fc4c205bb30c05bbe5adaf42b110ee67521d23ee16",
+      "url": "https://tiles.mapterhorn.com/12/735/1368.webp"
+    },
+    {
+      "path": "12/735/1369.webp",
+      "bytes": 100546,
+      "sha256": "8c0f78d4636dd403c613c975e0035797abaa22f11d27cd1a1d292083fb64aa14",
+      "url": "https://tiles.mapterhorn.com/12/735/1369.webp"
+    },
+    {
+      "path": "12/736/1367.webp",
+      "bytes": 106358,
+      "sha256": "d05b80e8b11957694142f1922f009a1c0f8dcb3b8e276dddb929be88122cef80",
+      "url": "https://tiles.mapterhorn.com/12/736/1367.webp"
+    },
+    {
+      "path": "12/736/1368.webp",
+      "bytes": 107078,
+      "sha256": "2607b46431bf85f6fa489abef69194baff03bd4bc25a1c434d7e5bb18048c140",
+      "url": "https://tiles.mapterhorn.com/12/736/1368.webp"
+    },
+    {
+      "path": "12/736/1369.webp",
+      "bytes": 129428,
+      "sha256": "3a67caf83481894d84db30f8841d1a8101c174926b10d77f82e73a83bb8edc9f",
+      "url": "https://tiles.mapterhorn.com/12/736/1369.webp"
+    }
+  ]
+}

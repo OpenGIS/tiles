@@ -5,16 +5,27 @@ const SOURCE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 const CONFIG_KEYS = ['version', 'server', 'sources'];
 const SERVER_KEYS = ['host', 'port', 'publicBaseUrl', 'trustProxy'];
-const SOURCE_KEYS = [
-  'kind',
-  'title',
-  'description',
-  'attribution',
-  'archiveDir',
-  'minzoom',
-  'maxzoom',
+const COMMON_SOURCE_KEYS = ['kind', 'title', 'description', 'attribution', 'minzoom', 'maxzoom'];
+const PMTILES_SOURCE_KEYS = [...COMMON_SOURCE_KEYS, 'archiveDir'];
+const CONTOUR_SOURCE_KEYS = [
+  ...COMMON_SOURCE_KEYS,
+  'demUrl',
+  'encoding',
+  'demMaxzoom',
+  'demTileSize',
+  'cacheSize',
+  'timeoutMs',
+  'buffer',
+  'extent',
+  'contourLayer',
+  'elevationKey',
+  'levelKey',
+  'thresholds',
+  'cacheMaxAge',
 ];
 const ATTRIBUTION_KEYS = ['title', 'href'];
+const ENCODINGS = ['terrarium', 'mapbox'];
+const THRESHOLD_ZOOM_PATTERN = /^(?:[0-9]|1[0-9]|2[0-6])$/;
 
 export class ConfigError extends Error {
   constructor(message) {
@@ -47,6 +58,86 @@ function requireInteger(value, label, minimum, maximum) {
     throw new ConfigError(`${label} must be an integer between ${minimum} and ${maximum}`);
   }
   return value;
+}
+
+function optionalInteger(value, label, minimum, maximum, fallback) {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  return requireInteger(value, label, minimum, maximum);
+}
+
+function validateDemUrl(value, label) {
+  const demUrl = requireString(value, label);
+
+  for (const placeholder of ['{z}', '{x}', '{y}']) {
+    if (!demUrl.includes(placeholder)) {
+      throw new ConfigError(`${label} must contain ${placeholder}`);
+    }
+  }
+
+  let url;
+  try {
+    url = new URL(demUrl);
+  } catch {
+    throw new ConfigError(`${label} must be an absolute http or https URL`);
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new ConfigError(`${label} must use http or https`);
+  }
+
+  return demUrl;
+}
+
+function validateThresholds(value, label) {
+  if (!isPlainObject(value)) {
+    throw new ConfigError(`${label} must be an object`);
+  }
+
+  const keys = Object.keys(value);
+
+  if (keys.length === 0) {
+    throw new ConfigError(`${label} must contain at least one zoom level`);
+  }
+
+  const entries = keys.map((key) => {
+    const entryLabel = `${label}.${key}`;
+
+    if (!THRESHOLD_ZOOM_PATTERN.test(key) || String(Number(key)) !== key) {
+      throw new ConfigError(`${entryLabel} must use a zoom level from 0 to 26`);
+    }
+
+    const interval = value[key];
+
+    if (!Array.isArray(interval) || interval.length !== 2) {
+      throw new ConfigError(`${entryLabel} must be a [minor, major] array`);
+    }
+
+    const [minor, major] = interval.map((number, index) => {
+      if (!Number.isInteger(number) || number < 1) {
+        throw new ConfigError(`${entryLabel}[${index}] must be an integer of at least 1`);
+      }
+
+      return number;
+    });
+
+    if (!(minor < major)) {
+      throw new ConfigError(`${entryLabel} must have minor < major`);
+    }
+
+    return { zoom: Number(key), levels: [minor, major] };
+  });
+
+  entries.sort((a, b) => a.zoom - b.zoom);
+
+  const thresholds = {};
+  for (const { zoom, levels } of entries) {
+    thresholds[String(zoom)] = levels;
+  }
+
+  return thresholds;
 }
 
 function resolveRepoRoot(repoRoot) {
@@ -121,14 +212,23 @@ function validateSource(name, source, repoRoot) {
     throw new ConfigError(`${label} must be an object`);
   }
 
-  assertAllowedKeys(source, SOURCE_KEYS, label);
-
   const kind = requireString(source.kind, `${label}.kind`);
-  if (kind !== 'pmtiles') {
-    throw new ConfigError(
-      `Source "${name}" has unknown kind "${kind}"; only "pmtiles" is supported`,
-    );
+
+  if (kind === 'pmtiles') {
+    return validatePmtilesSource(label, source, repoRoot);
   }
+
+  if (kind === 'contour') {
+    return validateContourSource(label, source);
+  }
+
+  throw new ConfigError(
+    `Source "${name}" has unknown kind "${kind}"; supported kinds are "pmtiles" and "contour"`,
+  );
+}
+
+function validatePmtilesSource(label, source, repoRoot) {
+  assertAllowedKeys(source, PMTILES_SOURCE_KEYS, label);
 
   const minzoom = requireInteger(source.minzoom, `${label}.minzoom`, 0, 26);
   const maxzoom = requireInteger(source.maxzoom, `${label}.maxzoom`, 0, 26);
@@ -137,7 +237,7 @@ function validateSource(name, source, repoRoot) {
   }
 
   return {
-    kind,
+    kind: source.kind,
     title: requireString(source.title, `${label}.title`),
     description: requireString(source.description, `${label}.description`),
     attribution: validateAttribution(source.attribution, `${label}.attribution`),
@@ -148,6 +248,57 @@ function validateSource(name, source, repoRoot) {
     ),
     minzoom,
     maxzoom,
+  };
+}
+
+function validateContourSource(label, source) {
+  assertAllowedKeys(source, CONTOUR_SOURCE_KEYS, label);
+
+  const minzoom = requireInteger(source.minzoom, `${label}.minzoom`, 1, 15);
+  const maxzoom = requireInteger(source.maxzoom, `${label}.maxzoom`, 1, 15);
+  if (minzoom > maxzoom) {
+    throw new ConfigError(`${label}.minzoom must not be greater than ${label}.maxzoom`);
+  }
+
+  const encoding = requireString(source.encoding, `${label}.encoding`);
+  if (!ENCODINGS.includes(encoding)) {
+    throw new ConfigError(
+      `${label}.encoding must be one of ${ENCODINGS.map((value) => `"${value}"`).join(', ')}`,
+    );
+  }
+
+  const demMaxzoom = optionalInteger(source.demMaxzoom, `${label}.demMaxzoom`, 0, 17, 12);
+  if (demMaxzoom > maxzoom) {
+    throw new ConfigError(`${label}.demMaxzoom must not be greater than ${label}.maxzoom`);
+  }
+
+  return {
+    kind: source.kind,
+    title: requireString(source.title, `${label}.title`),
+    description: requireString(source.description, `${label}.description`),
+    attribution: validateAttribution(source.attribution, `${label}.attribution`),
+    minzoom,
+    maxzoom,
+    demUrl: validateDemUrl(source.demUrl, `${label}.demUrl`),
+    encoding,
+    demMaxzoom,
+    demTileSize: optionalInteger(source.demTileSize, `${label}.demTileSize`, 256, 2048, 512),
+    cacheSize: optionalInteger(source.cacheSize, `${label}.cacheSize`, 1, 1000, 100),
+    timeoutMs: optionalInteger(source.timeoutMs, `${label}.timeoutMs`, 1000, 60000, 10000),
+    buffer: optionalInteger(source.buffer, `${label}.buffer`, 0, 64, 1),
+    extent: optionalInteger(source.extent, `${label}.extent`, 256, 8192, 4096),
+    contourLayer:
+      source.contourLayer === undefined
+        ? 'contours'
+        : requireString(source.contourLayer, `${label}.contourLayer`),
+    elevationKey:
+      source.elevationKey === undefined
+        ? 'ele'
+        : requireString(source.elevationKey, `${label}.elevationKey`),
+    levelKey:
+      source.levelKey === undefined ? 'level' : requireString(source.levelKey, `${label}.levelKey`),
+    thresholds: validateThresholds(source.thresholds, `${label}.thresholds`),
+    cacheMaxAge: optionalInteger(source.cacheMaxAge, `${label}.cacheMaxAge`, 60, 86400, 86400),
   };
 }
 

@@ -263,3 +263,279 @@ describe('loadConfig', () => {
     );
   });
 });
+
+function makeContourSource(overrides = {}) {
+  return {
+    kind: 'contour',
+    title: 'Terrain contours',
+    description: 'Contour lines generated on demand.',
+    attribution: [{ title: 'Mapterhorn', href: 'https://mapterhorn.com/attribution' }],
+    minzoom: 1,
+    maxzoom: 15,
+    demUrl: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
+    encoding: 'terrarium',
+    demMaxzoom: 12,
+    demTileSize: 512,
+    cacheSize: 100,
+    timeoutMs: 10000,
+    buffer: 1,
+    extent: 4096,
+    contourLayer: 'contours',
+    elevationKey: 'ele',
+    levelKey: 'level',
+    cacheMaxAge: 86400,
+    thresholds: {
+      4: [300, 1500],
+      12: [20, 100],
+    },
+    ...overrides,
+  };
+}
+
+function makeContourConfig(overrides = {}) {
+  return {
+    version: 1,
+    server: { host: '127.0.0.1', port: 11010 },
+    sources: { contours: makeContourSource(overrides) },
+  };
+}
+
+describe('validateConfig contour sources', () => {
+  it('normalises a contour source and sorts its thresholds', () => {
+    const config = validateConfig(makeContourConfig(), { repoRoot: '/srv/tiles' });
+
+    expect(config.sources.contours).toEqual({
+      kind: 'contour',
+      title: 'Terrain contours',
+      description: 'Contour lines generated on demand.',
+      attribution: [{ title: 'Mapterhorn', href: 'https://mapterhorn.com/attribution' }],
+      minzoom: 1,
+      maxzoom: 15,
+      demUrl: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
+      encoding: 'terrarium',
+      demMaxzoom: 12,
+      demTileSize: 512,
+      cacheSize: 100,
+      timeoutMs: 10000,
+      buffer: 1,
+      extent: 4096,
+      contourLayer: 'contours',
+      elevationKey: 'ele',
+      levelKey: 'level',
+      thresholds: {
+        4: [300, 1500],
+        12: [20, 100],
+      },
+      cacheMaxAge: 86400,
+    });
+  });
+
+  it('applies contour defaults for optional fields', () => {
+    const source = makeContourSource();
+    for (const key of [
+      'demMaxzoom',
+      'demTileSize',
+      'cacheSize',
+      'timeoutMs',
+      'buffer',
+      'extent',
+      'contourLayer',
+      'elevationKey',
+      'levelKey',
+      'cacheMaxAge',
+    ]) {
+      delete source[key];
+    }
+
+    const config = validateConfig(
+      { ...makeContourConfig(), sources: { contours: source } },
+      { repoRoot: '/srv/tiles' },
+    );
+
+    expect(config.sources.contours).toMatchObject({
+      demMaxzoom: 12,
+      demTileSize: 512,
+      cacheSize: 100,
+      timeoutMs: 10000,
+      buffer: 1,
+      extent: 4096,
+      contourLayer: 'contours',
+      elevationKey: 'ele',
+      levelKey: 'level',
+      cacheMaxAge: 86400,
+    });
+  });
+
+  it('rejects archiveDir on a contour source', () => {
+    const raw = makeContourConfig({ archiveDir: 'data/contours' });
+
+    expect(() => validateConfig(raw, { repoRoot: '/srv/tiles' })).toThrow(
+      /unknown key "archiveDir"/,
+    );
+  });
+
+  it.each([
+    ['demUrl', {}],
+    ['thresholds', {}],
+    ['encoding', {}],
+    ['cacheMaxAge', {}],
+  ])('rejects the contour-only key %s on a PMTiles source', (key) => {
+    const raw = makeConfig();
+    raw.sources.pois[key] = makeContourSource()[key];
+
+    expect(() => validateConfig(raw, { repoRoot: '/srv/tiles' })).toThrow(
+      new RegExp(`unknown key "${key}"`),
+    );
+  });
+
+  it.each([
+    ['minzoom below one', { minzoom: 0 }],
+    ['maxzoom above fifteen', { maxzoom: 16 }],
+    ['minzoom above maxzoom', { minzoom: 10, maxzoom: 9 }],
+    ['fractional zoom', { minzoom: 1.5 }],
+  ])('rejects bad contour zooms: %s', (_label, overrides) => {
+    expect(() => validateConfig(makeContourConfig(overrides), { repoRoot: '/srv/tiles' })).toThrow(
+      ConfigError,
+    );
+  });
+
+  it.each([
+    ['relative URL', '/dem/{z}/{x}/{y}.webp'],
+    ['ftp URL', 'ftp://tiles.example/{z}/{x}/{y}.webp'],
+    ['missing z placeholder', 'https://tiles.example/{x}/{y}.webp'],
+    ['missing x placeholder', 'https://tiles.example/{z}/{y}.webp'],
+    ['missing y placeholder', 'https://tiles.example/{z}/{x}.webp'],
+  ])('rejects a DEM URL with %s', (_label, demUrl) => {
+    expect(() => validateConfig(makeContourConfig({ demUrl }), { repoRoot: '/srv/tiles' })).toThrow(
+      ConfigError,
+    );
+  });
+
+  it.each(['png', 'lerc', 'TERRARIUM'])('rejects the encoding %s', (encoding) => {
+    expect(() =>
+      validateConfig(makeContourConfig({ encoding }), { repoRoot: '/srv/tiles' }),
+    ).toThrow(/encoding/);
+  });
+
+  it.each([
+    ['demMaxzoom above seventeen', { demMaxzoom: 18 }],
+    ['negative demMaxzoom', { demMaxzoom: -1 }],
+    ['demMaxzoom above maxzoom', { demMaxzoom: 16 }],
+    ['zero demTileSize', { demTileSize: 0 }],
+    ['demTileSize below its minimum', { demTileSize: 255 }],
+    ['demTileSize above its maximum', { demTileSize: 2049 }],
+    ['zero cacheSize', { cacheSize: 0 }],
+    ['cacheSize above its maximum', { cacheSize: 1001 }],
+    ['timeoutMs below its minimum', { timeoutMs: 999 }],
+    ['timeoutMs above its maximum', { timeoutMs: 60001 }],
+    ['zero extent', { extent: 0 }],
+    ['extent below its minimum', { extent: 255 }],
+    ['extent above its maximum', { extent: 8193 }],
+    ['zero cacheMaxAge', { cacheMaxAge: 0 }],
+    ['cacheMaxAge below its minimum', { cacheMaxAge: 59 }],
+    ['cacheMaxAge above its maximum', { cacheMaxAge: 86401 }],
+    ['a negative buffer', { buffer: -1 }],
+    ['a buffer above its maximum', { buffer: 65 }],
+    ['a fractional buffer', { buffer: 1.5 }],
+  ])('rejects %s', (_label, overrides) => {
+    expect(() => validateConfig(makeContourConfig(overrides), { repoRoot: '/srv/tiles' })).toThrow(
+      ConfigError,
+    );
+  });
+
+  it('accepts contour fields at their lower bounds', () => {
+    const config = validateConfig(
+      makeContourConfig({
+        demMaxzoom: 0,
+        demTileSize: 256,
+        cacheSize: 1,
+        timeoutMs: 1000,
+        buffer: 0,
+        extent: 256,
+        cacheMaxAge: 60,
+      }),
+      { repoRoot: '/srv/tiles' },
+    );
+
+    expect(config.sources.contours).toMatchObject({
+      demMaxzoom: 0,
+      demTileSize: 256,
+      cacheSize: 1,
+      timeoutMs: 1000,
+      buffer: 0,
+      extent: 256,
+      cacheMaxAge: 60,
+    });
+  });
+
+  it('accepts contour fields at their upper bounds', () => {
+    const config = validateConfig(
+      makeContourConfig({
+        demMaxzoom: 15,
+        demTileSize: 2048,
+        cacheSize: 1000,
+        timeoutMs: 60000,
+        buffer: 64,
+        extent: 8192,
+        cacheMaxAge: 86400,
+      }),
+      { repoRoot: '/srv/tiles' },
+    );
+
+    expect(config.sources.contours).toMatchObject({
+      demMaxzoom: 15,
+      demTileSize: 2048,
+      cacheSize: 1000,
+      timeoutMs: 60000,
+      buffer: 64,
+      extent: 8192,
+      cacheMaxAge: 86400,
+    });
+  });
+
+  it('rejects a non-numeric buffer', () => {
+    expect(() =>
+      validateConfig(makeContourConfig({ buffer: '1' }), { repoRoot: '/srv/tiles' }),
+    ).toThrow(/buffer/);
+  });
+
+  it('rejects an empty threshold table', () => {
+    expect(() =>
+      validateConfig(makeContourConfig({ thresholds: {} }), { repoRoot: '/srv/tiles' }),
+    ).toThrow(/at least one/);
+  });
+
+  it.each([
+    ['a zoom above twenty-six', { 27: [1, 2] }],
+    ['a non-integer zoom', { 1.5: [1, 2] }],
+    ['a padded zoom string', { '01': [1, 2] }],
+  ])('rejects a threshold with %s', (_label, thresholds) => {
+    expect(() =>
+      validateConfig(makeContourConfig({ thresholds }), { repoRoot: '/srv/tiles' }),
+    ).toThrow(/zoom level/);
+  });
+
+  it.each([
+    ['a bare number', { 12: 20 }],
+    ['one interval', { 12: [20] }],
+    ['three intervals', { 12: [20, 100, 200] }],
+    ['non-numeric intervals', { 12: ['20', '100'] }],
+    ['minor equal to major', { 12: [20, 20] }],
+    ['minor above major', { 12: [100, 20] }],
+    ['a negative minor interval', { 12: [-20, 100] }],
+    ['two negative intervals', { 12: [-100, -10] }],
+    ['a zero minor interval', { 12: [0, 100] }],
+    ['a sub-one minor interval', { 12: [0.5, 100] }],
+    ['a fractional major interval', { 12: [20, 100.5] }],
+  ])('rejects a threshold with %s', (_label, thresholds) => {
+    expect(() =>
+      validateConfig(makeContourConfig({ thresholds }), { repoRoot: '/srv/tiles' }),
+    ).toThrow(ConfigError);
+  });
+
+  it('rejects an empty contour layer name', () => {
+    expect(() =>
+      validateConfig(makeContourConfig({ contourLayer: ' ' }), { repoRoot: '/srv/tiles' }),
+    ).toThrow(/contourLayer/);
+  });
+});

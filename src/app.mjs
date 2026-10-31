@@ -2,6 +2,8 @@ import { createServer } from 'node:http';
 import { gunzipSync } from 'node:zlib';
 
 import { sendEmpty, sendJson, sendTile } from './lib/http.mjs';
+import { DemCoverageError, DemDecodeError, SourceUnavailableError } from './lib/errors.mjs';
+import { createContourSource } from './sources/contour.mjs';
 import { createPmtilesSource } from './sources/pmtiles.mjs';
 
 const SERVICE = 'ogis-tiles';
@@ -130,6 +132,28 @@ function sendMethodNotAllowed(request, response) {
   );
 }
 
+function sendUpstreamUnavailable(request, response, error) {
+  const headers = { 'cache-control': NO_STORE };
+
+  if (error.retryAfter) {
+    headers['retry-after'] = String(error.retryAfter);
+  }
+
+  sendJson(request, response, 503, { error: 'upstream_unavailable' }, headers);
+}
+
+function cacheControlFor(source, versioned) {
+  if (versioned) {
+    return IMMUTABLE_CACHE;
+  }
+
+  if (source.kind === 'contour') {
+    return `public, max-age=${source.cacheMaxAge}`;
+  }
+
+  return SHORT_CACHE;
+}
+
 function parseNumber(value) {
   if (!NUMBER_PATTERN.test(value)) {
     return null;
@@ -208,6 +232,11 @@ async function handleTile(request, response, url, parts, sources) {
 
   const buildId = versioned ? parts[1] : undefined;
 
+  if (versioned && source.kind === 'contour') {
+    sendError(request, response, 404, 'not_found');
+    return;
+  }
+
   if (versioned && !BUILD_ID_PATTERN.test(buildId)) {
     sendError(request, response, 400, 'invalid_build_id');
     return;
@@ -229,12 +258,34 @@ async function handleTile(request, response, url, parts, sources) {
     return;
   }
 
+  const controller = new AbortController();
+  const onClose = () => {
+    if (!response.writableEnded) {
+      controller.abort();
+    }
+  };
+  response.on('close', onClose);
+
   let result;
   try {
-    result = await source.getTile(z, x, y, buildId);
-  } catch {
-    sendError(request, response, 500, 'internal_error');
+    result = await source.getTile(z, x, y, buildId, { signal: controller.signal });
+  } catch (error) {
+    if (error instanceof SourceUnavailableError) {
+      sendUpstreamUnavailable(request, response, error);
+    } else if (error instanceof DemCoverageError) {
+      const etag = `"${source.buildId}-${z}-${x}-${y}-empty"`;
+      sendEmpty(request, response, 204, {
+        etag,
+        'cache-control': cacheControlFor(source, versioned),
+      });
+    } else if (error instanceof DemDecodeError) {
+      sendError(request, response, 500, 'internal_error');
+    } else {
+      sendError(request, response, 500, 'internal_error');
+    }
     return;
+  } finally {
+    response.off('close', onClose);
   }
 
   if (result.notFound) {
@@ -242,7 +293,7 @@ async function handleTile(request, response, url, parts, sources) {
     return;
   }
 
-  const cacheControl = versioned ? IMMUTABLE_CACHE : SHORT_CACHE;
+  const cacheControl = cacheControlFor(source, versioned);
 
   if (result.empty) {
     const etag = `"${result.buildId}-${z}-${x}-${y}-empty"`;
@@ -360,7 +411,7 @@ async function handleRequest(request, response, { config, sources }) {
           sources: '/sources',
           tilejson: '/{source}.json',
           tiles: '/{source}/{z}/{x}/{y}.pbf',
-          versionedTiles: '/{source}/{buildId}/{z}/{x}/{y}.pbf',
+          versionedPmtilesTiles: '/{source}/{buildId}/{z}/{x}/{y}.pbf',
         },
       },
       { 'cache-control': NO_STORE },
@@ -430,11 +481,13 @@ export async function createApp(config) {
 
   try {
     for (const [name, sourceConfig] of Object.entries(config.sources)) {
-      if (sourceConfig.kind !== 'pmtiles') {
+      if (sourceConfig.kind === 'pmtiles') {
+        sources[name] = await createPmtilesSource(name, sourceConfig);
+      } else if (sourceConfig.kind === 'contour') {
+        sources[name] = await createContourSource(name, sourceConfig);
+      } else {
         throw new Error(`Unsupported source kind "${sourceConfig.kind}" for source "${name}"`);
       }
-
-      sources[name] = await createPmtilesSource(name, sourceConfig);
     }
   } catch (error) {
     await Promise.allSettled(Object.values(sources).map((source) => source.close()));

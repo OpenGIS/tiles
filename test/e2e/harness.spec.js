@@ -25,6 +25,7 @@ test('renders the offline basemap harness', async ({ page }, testInfo) => {
   const pageErrors = [];
   const failedResponses = [];
   const externalRequests = [];
+  const contourTileResponses = [];
 
   page.on('console', (message) => {
     if (message.type() === 'error') {
@@ -37,6 +38,15 @@ test('renders the offline basemap harness', async ({ page }, testInfo) => {
   });
 
   page.on('response', (response) => {
+    const { pathname } = new URL(response.url());
+
+    if (/^\/contours\/\d+\/\d+\/\d+\.pbf$/.test(pathname)) {
+      contourTileResponses.push({
+        status: response.status(),
+        length: Number(response.headers()['content-length'] ?? 0),
+      });
+    }
+
     if (response.status() >= 400) {
       failedResponses.push(`${response.status()} ${response.url()}`);
     }
@@ -60,12 +70,29 @@ test('renders the offline basemap harness', async ({ page }, testInfo) => {
   await expect(page.locator('[data-source="pois"]')).toBeVisible();
   await expect(page.locator('[data-source="routes"]')).toBeVisible();
   await expect(page.locator('[data-source="paths"]')).toBeVisible();
+  await expect(page.locator('[data-source="contours"]')).toBeVisible();
+
+  await expect(page.locator('[aria-label="Outdoor POIs: unavailable"]')).toBeVisible();
+  await expect(page.locator('[aria-label="Outdoor routes: unavailable"]')).toBeVisible();
+  await expect(page.locator('[aria-label="Outdoor paths: unavailable"]')).toBeVisible();
+  await expect(page.locator('[aria-label="Terrain contours: available"]')).toBeVisible();
+
+  await expect(page.locator('[data-source="pois"]')).toBeDisabled();
+  await expect(page.locator('[data-source="routes"]')).toBeDisabled();
+  await expect(page.locator('[data-source="paths"]')).toBeDisabled();
+  await expect(page.locator('[data-source="contours"]')).toBeChecked();
+  await expect(page.locator('[data-source="contours"]')).toBeEnabled();
+
+  await expect(page.locator('body')).toHaveAttribute('data-contour-layer', 'true', {
+    timeout: 30000,
+  });
 
   await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
 
   const attribution = page.locator('.maplibregl-ctrl-attrib');
   await expect(attribution).toContainText('OpenFreeMap');
   await expect(attribution).toContainText('OpenStreetMap');
+  await expect(attribution).toContainText('Mapterhorn');
 
   await page.waitForTimeout(1000);
   await page.screenshot({ path: testInfo.outputPath('harness.png'), fullPage: true });
@@ -74,4 +101,16 @@ test('renders the offline basemap harness', async ({ page }, testInfo) => {
   expect(pageErrors).toEqual([]);
   expect(failedResponses).toEqual([]);
   expect(externalRequests).toEqual([]);
+
+  await expect
+    .poll(
+      () =>
+        contourTileResponses.filter((response) => response.status === 200 && response.length > 0)
+          .length,
+      {
+        message: 'expected at least one contour tile to load',
+        timeout: 20000,
+      },
+    )
+    .toBeGreaterThan(0);
 });

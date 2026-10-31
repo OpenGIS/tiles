@@ -1,6 +1,6 @@
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
-  'access-control-expose-headers': 'ETag, Content-Length, Content-Encoding',
+  'access-control-expose-headers': 'ETag, Content-Length, Content-Encoding, Retry-After',
 };
 
 export function sendJson(request, response, status, body, extraHeaders = {}) {

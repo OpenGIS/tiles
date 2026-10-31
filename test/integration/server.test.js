@@ -9,7 +9,7 @@ import { createTempData } from '../helpers/temp.mjs';
 
 const NON_EMPTY_PATH = '/12/2167/1454.pbf';
 const EMPTY_PATH = '/12/0/0.pbf';
-const EXPOSE_HEADERS = 'ETag, Content-Length, Content-Encoding';
+const EXPOSE_HEADERS = 'ETag, Content-Length, Content-Encoding, Retry-After';
 
 function makeConfig(dataDir, serverOverrides = {}) {
   return validateConfig(
@@ -94,6 +94,8 @@ describe('tile server', () => {
       version: '2.0.0',
     });
     expect(json(response).endpoints).toBeTypeOf('object');
+    expect(json(response).endpoints).toHaveProperty('versionedPmtilesTiles');
+    expect(json(response).endpoints).not.toHaveProperty('versionedTiles');
   });
 
   it('reports health as ok when every source is available', async () => {

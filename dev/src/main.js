@@ -9,6 +9,7 @@ const KNOWN_SOURCE_LAYERS = {
   pois: 'outdoor_pois',
   routes: 'outdoor_routes',
   paths: 'outdoor_paths',
+  contours: 'contours',
 };
 
 const busy = new Set();
@@ -83,13 +84,17 @@ async function addSource(map, source, checkbox) {
   map.addSource(source.name, options);
   addLayers(map, source.name, sourceLayer);
   checkbox.disabled = false;
+
+  if (source.kind === 'contour') {
+    document.body.dataset.contourLayer = 'true';
+  }
 }
 
 function removeSource(map, name) {
   removeLayers(map, name);
 }
 
-function renderSources(map, sources) {
+async function renderSources(map, sources) {
   const container = document.querySelector('#sources');
 
   if (!container) {
@@ -99,6 +104,7 @@ function renderSources(map, sources) {
   container.textContent = '';
   const list = document.createElement('ul');
   const fragment = document.createDocumentFragment();
+  const autoSources = [];
 
   for (const source of sources) {
     const item = document.createElement('li');
@@ -142,11 +148,32 @@ function renderSources(map, sources) {
       }
     });
 
+    if (source.available && source.kind === 'contour') {
+      checkbox.checked = true;
+      autoSources.push({ source, checkbox });
+    }
+
     fragment.append(item);
   }
 
   list.append(fragment);
   container.append(list);
+
+  for (const { source, checkbox } of autoSources) {
+    busy.add(source.name);
+    checkbox.disabled = true;
+
+    try {
+      await addSource(map, source, checkbox);
+    } catch (error) {
+      checkbox.checked = false;
+      removeSource(map, source.name);
+      console.error(`Unable to add ${source.name}:`, error);
+    } finally {
+      busy.delete(source.name);
+      checkbox.disabled = !source.available;
+    }
+  }
 }
 
 async function loadSources(map) {
@@ -155,7 +182,7 @@ async function loadSources(map) {
   try {
     const payload = await fetchJson('/sources');
     const sources = Array.isArray(payload.sources) ? payload.sources : [];
-    renderSources(map, sources);
+    await renderSources(map, sources);
   } catch (error) {
     if (container) {
       container.textContent = 'Tile server unavailable';
@@ -195,7 +222,7 @@ async function start() {
     container: 'map',
     style,
     center: [-115.35, 51.15],
-    zoom: 11.5,
+    zoom: 12,
     maxZoom: 16,
     attributionControl: true,
   });

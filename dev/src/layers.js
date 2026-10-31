@@ -210,6 +210,26 @@ function pathLayers(name, sourceLayer) {
   ];
 }
 
+function contourLayers(name, sourceLayer) {
+  return [
+    {
+      id: name,
+      type: 'line',
+      source: name,
+      'source-layer': sourceLayer,
+      layout: {
+        'line-join': 'round',
+        'line-cap': 'round',
+      },
+      paint: {
+        'line-color': ['match', ['get', 'level'], 1, '#8a6a48', 0, '#c2b19a', '#c2b19a'],
+        'line-width': ['match', ['get', 'level'], 1, 1.4, 0, 0.7, 0.7],
+        'line-opacity': 0.75,
+      },
+    },
+  ];
+}
+
 export function buildLayers(name, sourceLayer) {
   if (!sourceLayer) {
     return [];
@@ -222,6 +242,8 @@ export function buildLayers(name, sourceLayer) {
       return routeLayers(name, sourceLayer);
     case 'paths':
       return pathLayers(name, sourceLayer);
+    case 'contours':
+      return contourLayers(name, sourceLayer);
     default:
       return [];
   }
@@ -245,7 +267,7 @@ export function removeLayers(map, name) {
   const layers = map.getStyle()?.layers ?? [];
 
   for (const layer of layers) {
-    if (layer.id.startsWith(`${name}-`) && map.getLayer(layer.id)) {
+    if ((layer.id === name || layer.id.startsWith(`${name}-`)) && map.getLayer(layer.id)) {
       map.removeLayer(layer.id);
     }
   }
