@@ -17,6 +17,9 @@ const TOOL_KEYS = ['planetiler', 'pmtiles'];
 const PLANETILER_KEYS = ['version', 'url', 'sha256'];
 const SOURCE_BUILD_KEYS = [
   'profile',
+  'profileKind',
+  'profileFile',
+  'heap',
   'minzoom',
   'maxzoom',
   'expressions',
@@ -25,8 +28,12 @@ const SOURCE_BUILD_KEYS = [
   'verification',
 ];
 const SAMPLE_TILE_KEYS = ['z', 'x', 'y'];
-const VERIFICATION_KEYS = ['layer', 'requiredAttributes', 'layers'];
-const VERIFICATION_LAYER_KEYS = ['layer', 'requiredAttributes'];
+const VERIFICATION_KEYS = ['layer', 'requiredAttributes', 'geometry', 'layers'];
+const VERIFICATION_LAYER_KEYS = ['layer', 'requiredAttributes', 'geometry'];
+const PROFILE_KINDS = ['yaml', 'java'];
+const PROFILE_FILE_PATTERN = /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:java|ya?ml)$/;
+const HEAP_PATTERN = /^\d+[mg]$/i;
+const GEOMETRIES = ['point', 'line', 'polygon'];
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -272,13 +279,25 @@ function validateVerificationLayer(value, label) {
 
   assertAllowedKeys(value, VERIFICATION_LAYER_KEYS, label);
 
-  return {
+  const layer = {
     layer: requireString(value.layer, `${label}.layer`),
     requiredAttributes: validateRequiredAttributes(
       value.requiredAttributes,
       `${label}.requiredAttributes`,
     ),
   };
+
+  if (value.geometry !== undefined) {
+    const geometry = requireString(value.geometry, `${label}.geometry`);
+    if (!GEOMETRIES.includes(geometry)) {
+      throw new BuildConfigError(
+        `${label}.geometry must be one of ${GEOMETRIES.map((entry) => `"${entry}"`).join(', ')}`,
+      );
+    }
+    layer.geometry = geometry;
+  }
+
+  return layer;
 }
 
 function validateVerification(value, label) {
@@ -350,6 +369,55 @@ function validateArchiveDir(value, label) {
   return archiveDir;
 }
 
+function validateProfileKind(value, label) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const kind = requireString(value, label);
+  if (!PROFILE_KINDS.includes(kind)) {
+    throw new BuildConfigError(
+      `${label} must be one of ${PROFILE_KINDS.map((entry) => `"${entry}"`).join(', ')}`,
+    );
+  }
+
+  return kind;
+}
+
+function validateProfileFile(value, label) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const file = requireString(value, label);
+  if (
+    path.isAbsolute(file) ||
+    file.split(/[\\/]+/).includes('..') ||
+    file.split(/[\\/]+/).includes('.')
+  ) {
+    throw new BuildConfigError(`${label} must be a relative path inside the repository`);
+  }
+
+  if (!PROFILE_FILE_PATTERN.test(file)) {
+    throw new BuildConfigError(`${label} must be a .java or .yml profile file`);
+  }
+
+  return file;
+}
+
+function validateHeap(value, label) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const heap = requireString(value, label);
+  if (!HEAP_PATTERN.test(heap)) {
+    throw new BuildConfigError(`${label} must be a heap size such as "512m" or "2g"`);
+  }
+
+  return heap;
+}
+
 function validateSourceBuild(name, source) {
   const label = `sources.${name}.build`;
 
@@ -364,6 +432,10 @@ function validateSourceBuild(name, source) {
     throw new BuildConfigError(`${label}.profile must match ${PROFILE_PATTERN}`);
   }
 
+  const profileKind = validateProfileKind(source.build.profileKind, `${label}.profileKind`);
+  const profileFile = validateProfileFile(source.build.profileFile, `${label}.profileFile`);
+  const heap = validateHeap(source.build.heap, `${label}.heap`);
+
   const minzoom = requireInteger(source.build.minzoom, `${label}.minzoom`, 0, 26);
   const maxzoom = requireInteger(source.build.maxzoom, `${label}.maxzoom`, 0, 26);
   if (minzoom > maxzoom) {
@@ -373,6 +445,9 @@ function validateSourceBuild(name, source) {
   return {
     archiveDir: validateArchiveDir(source.archiveDir, `sources.${name}.archiveDir`),
     profile,
+    ...(profileKind === undefined ? {} : { profileKind }),
+    ...(profileFile === undefined ? {} : { profileFile }),
+    ...(heap === undefined ? {} : { heap }),
     minzoom,
     maxzoom,
     expressions: validateExpressions(source.build.expressions, `${label}.expressions`),

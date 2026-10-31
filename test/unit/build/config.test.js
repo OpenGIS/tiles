@@ -5,6 +5,7 @@ import {
   resolveSizeFloor,
   validateBuildConfig,
 } from '../../../src/build/config.mjs';
+import { sourceExpressionUnion } from '../../../src/build/expressions.mjs';
 import { BuildConfigError } from '../../../src/build/errors.mjs';
 import { validateConfig } from '../../../src/lib/config.mjs';
 
@@ -131,6 +132,12 @@ describe('validateBuildConfig', () => {
       (build) => (build.verification = { layer: 'outdoor_pois' }),
     ],
     ['an invalid layers list', (build) => (build.verification = { layers: [] })],
+    ['an unknown profile kind', (build) => (build.profileKind = 'kotlin')],
+    ['an absolute profile file', (build) => (build.profileFile = '/srv/routes.java')],
+    ['a traversing profile file', (build) => (build.profileFile = '../routes.java')],
+    ['a non-profile file', (build) => (build.profileFile = 'build/profiles/routes.txt')],
+    ['an invalid heap size', (build) => (build.heap = 'lots')],
+    ['an unknown verification geometry', (build) => (build.verification.geometry = 'circle')],
   ])('rejects %s', (_label, mutate) => {
     const raw = makeBuildConfig();
     mutate(raw.sources.pois.build);
@@ -210,6 +217,47 @@ describe('validateBuildConfig', () => {
 
     expect(validateBuildConfig(raw).sources.pois.sizeFloor).toEqual({ default: 1024 });
   });
+
+  it('normalises a Java source-file profile with geometry verification', () => {
+    const raw = makeBuildConfig();
+    raw.sources.routes = {
+      ...raw.sources.pois,
+      archiveDir: 'data/routes',
+      title: 'Outdoor routes',
+      description: 'Routes.',
+      minzoom: 8,
+      maxzoom: 14,
+      build: {
+        profile: 'routes',
+        profileKind: 'java',
+        profileFile: 'build/profiles/routes.java',
+        heap: '2g',
+        minzoom: 8,
+        maxzoom: 14,
+        expressions: ['r/route=*hiking*'],
+        sampleTiles: [{ z: 13, x: 1465, y: 2735 }],
+        verification: {
+          layer: 'outdoor_routes',
+          geometry: 'line',
+          requiredAttributes: ['activity', 'activities'],
+        },
+        sizeFloor: { fixture: 65536, planet: 104857600 },
+      },
+    };
+
+    expect(validateBuildConfig(raw).sources.routes).toMatchObject({
+      archiveDir: 'data/routes',
+      profile: 'routes',
+      profileKind: 'java',
+      profileFile: 'build/profiles/routes.java',
+      heap: '2g',
+      verification: {
+        layer: 'outdoor_routes',
+        geometry: 'line',
+        requiredAttributes: ['activity', 'activities'],
+      },
+    });
+  });
 });
 
 describe('resolveSizeFloor', () => {
@@ -235,6 +283,45 @@ describe('loadBuildConfig', () => {
       requiredAttributes: ['kind', 'name'],
     });
     expect(config.build.tools.planetiler.version).toBe('0.10.2');
+  });
+
+  it('loads the Java route and path profiles', () => {
+    const config = loadBuildConfig('config/layers.json');
+
+    expect(config.sources.routes).toMatchObject({
+      profile: 'routes',
+      profileKind: 'java',
+      profileFile: 'build/profiles/routes.java',
+      minzoom: 8,
+      maxzoom: 14,
+    });
+    expect(config.sources.paths).toMatchObject({
+      profile: 'paths',
+      profileKind: 'java',
+      profileFile: 'build/profiles/paths.java',
+      minzoom: 9,
+      maxzoom: 13,
+    });
+  });
+
+  it('builds one osmium filter union across every source', () => {
+    const config = loadBuildConfig('config/layers.json');
+    const expressions = sourceExpressionUnion(config.sources);
+
+    expect(expressions).toHaveLength(25);
+    expect(expressions).toEqual(
+      expect.arrayContaining([
+        'nwr/tourism=alpine_hut,wilderness_hut',
+        'r/route=*hiking*',
+        'r/route=*bicycle*',
+        'r/route=*foot*',
+        'r/route=*walking*',
+        'w/highway=path',
+        'w/highway=footway',
+        'w/highway=track',
+      ]),
+    );
+    expect(new Set(expressions).size).toBe(expressions.length);
   });
 });
 

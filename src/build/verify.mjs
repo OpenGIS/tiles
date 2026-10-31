@@ -65,12 +65,19 @@ export function verificationLayers(verification) {
         requiredAttributes: Array.isArray(verification.requiredAttributes)
           ? verification.requiredAttributes
           : [],
+        ...(verification.geometry === undefined ? {} : { geometry: verification.geometry }),
       },
     ];
   }
 
   return [];
 }
+
+const GEOMETRY_TYPES = {
+  point: 1,
+  line: 2,
+  polygon: 3,
+};
 
 function asBuffer(value) {
   if (Buffer.isBuffer(value)) {
@@ -119,6 +126,7 @@ export async function decodeSampleTile({
   let features = 0;
   const attributes = new Set();
   const layerResults = [];
+  const geometries = new Set();
 
   for (const configured of configuredLayers) {
     const vectorLayer = decodeLayer(data, configured.layer);
@@ -130,17 +138,30 @@ export async function decodeSampleTile({
     }
 
     const layerAttributes = new Set();
+    const layerGeometries = new Set();
     for (let index = 0; index < vectorLayer.length; index += 1) {
-      for (const key of Object.keys(vectorLayer.feature(index).properties)) {
+      const feature = vectorLayer.feature(index);
+      for (const key of Object.keys(feature.properties)) {
         layerAttributes.add(key);
         attributes.add(key);
       }
+      layerGeometries.add(feature.type);
+      geometries.add(feature.type);
     }
 
     for (const required of configured.requiredAttributes ?? []) {
       if (!layerAttributes.has(required)) {
         throw new BuildError(
           `Sample tile ${sample.z}/${sample.x}/${sample.y} layer "${configured.layer}" is missing the "${required}" attribute`,
+        );
+      }
+    }
+
+    if (configured.geometry !== undefined) {
+      const expectedType = GEOMETRY_TYPES[configured.geometry];
+      if (!layerGeometries.has(expectedType)) {
+        throw new BuildError(
+          `Sample tile ${sample.z}/${sample.x}/${sample.y} layer "${configured.layer}" has no ${configured.geometry} geometry`,
         );
       }
     }
@@ -157,6 +178,7 @@ export async function decodeSampleTile({
     layers: layerResults,
     features,
     attributes: [...attributes].sort(),
+    geometries: [...geometries].sort((a, b) => a - b),
   };
 }
 

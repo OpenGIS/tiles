@@ -7,7 +7,7 @@ import { PbfReader } from 'pbf';
 import { zxyToTileId as oracleZxyToTileId } from 'pmtiles';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { PmtilesReader, zxyToTileId } from '../../src/lib/pmtiles.mjs';
+import { PmtilesReader, tileIdToZoom, zxyToTileId } from '../../src/lib/pmtiles.mjs';
 import { writeArchiveFile, writeSyntheticArchive } from '../helpers/archive.mjs';
 import { createOracle } from '../helpers/oracle.mjs';
 import { createTempDirectory, fixturePath, removeTempDirectory } from '../helpers/temp.mjs';
@@ -95,6 +95,10 @@ describe('PmtilesReader', () => {
   it('returns null for a known empty tile', async () => {
     expect(await reader.getTile(EMPTY_TILE.z, EMPTY_TILE.x, EMPTY_TILE.y)).toBeNull();
     expect(await oracle.archive.getZxy(EMPTY_TILE.z, EMPTY_TILE.x, EMPTY_TILE.y)).toBeUndefined();
+  });
+
+  it('reports the minimum zoom that actually contains tiles', () => {
+    expect(reader.getMinimumZoom()).toBe(8);
   });
 
   it('matches the reference implementation for a spread of tiles', async () => {
@@ -327,5 +331,29 @@ describe('zxyToTileId', () => {
     expect(() => zxyToTileId(2, 4, 0)).toThrow(RangeError);
     expect(() => zxyToTileId(2, 0, 4)).toThrow(RangeError);
     expect(() => zxyToTileId(27, 0, 0)).toThrow(RangeError);
+  });
+});
+
+describe('tileIdToZoom', () => {
+  it('maps the base tile id of each zoom', () => {
+    expect(tileIdToZoom(0)).toBe(0);
+    expect(tileIdToZoom(1)).toBe(1);
+    expect(tileIdToZoom(5)).toBe(2);
+    expect(tileIdToZoom(21)).toBe(3);
+  });
+
+  it('round-trips every tile at low zooms', () => {
+    for (let z = 0; z <= 6; z += 1) {
+      for (let y = 0; y < 2 ** z; y += 1) {
+        for (let x = 0; x < 2 ** z; x += 1) {
+          expect(tileIdToZoom(zxyToTileId(z, x, y))).toBe(z);
+        }
+      }
+    }
+  });
+
+  it('rejects negative and non-integer ids', () => {
+    expect(() => tileIdToZoom(-1)).toThrow(RangeError);
+    expect(() => tileIdToZoom(1.5)).toThrow(RangeError);
   });
 });

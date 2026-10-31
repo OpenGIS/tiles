@@ -284,6 +284,26 @@ function findEntry(entries, tileId) {
   return tileId - entry.tileId < entry.runLength ? entry : null;
 }
 
+export function tileIdToZoom(tileId) {
+  if (!Number.isSafeInteger(tileId) || tileId < 0) {
+    throw new RangeError('Tile id must be a non-negative safe integer');
+  }
+
+  let zoom = 0;
+  let base = 0;
+
+  while (zoom <= 26) {
+    const count = 4 ** zoom;
+    if (tileId < base + count) {
+      return zoom;
+    }
+    base += count;
+    zoom += 1;
+  }
+
+  throw new RangeError('Tile id is outside the supported zoom range');
+}
+
 export function zxyToTileId(z, x, y) {
   if (!Number.isInteger(z) || z < 0 || z > 26) {
     throw new RangeError('Zoom level must be an integer between 0 and 26');
@@ -403,6 +423,16 @@ export class PmtilesReader {
   getHeader() {
     this.requireOpen();
     return this.header;
+  }
+
+  getMinimumZoom() {
+    this.requireOpen();
+
+    if (this.rootDirectory.length === 0) {
+      return this.header.minZoom;
+    }
+
+    return tileIdToZoom(this.rootDirectory[0].tileId);
   }
 
   async getMetadata() {

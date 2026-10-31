@@ -73,6 +73,16 @@ describe('verification layers', () => {
 
     expect(verificationLayers({ layers })).toEqual(layers);
   });
+
+  it('preserves a configured geometry', () => {
+    expect(
+      verificationLayers({
+        layer: 'outdoor_routes',
+        geometry: 'line',
+        requiredAttributes: ['activity'],
+      }),
+    ).toEqual([{ layer: 'outdoor_routes', geometry: 'line', requiredAttributes: ['activity'] }]);
+  });
 });
 
 describe('decodeSampleTile', () => {
@@ -115,5 +125,33 @@ describe('decodeSampleTile', () => {
         },
       }),
     ).rejects.toThrow(/not_a_real_attribute/);
+  });
+
+  it('accepts the configured point geometry', async () => {
+    const sample = await decodeSampleTile({
+      archivePath: fixtureArchive,
+      sample: { z: 12, x: 2167, y: 1454 },
+      verification: {
+        layer: 'outdoor_pois',
+        geometry: 'point',
+        requiredAttributes: ['kind', 'name'],
+      },
+    });
+
+    expect(sample.geometries).toEqual([1]);
+  });
+
+  it('rejects a layer without the configured geometry', async () => {
+    await expect(
+      decodeSampleTile({
+        archivePath: fixtureArchive,
+        sample: { z: 12, x: 2167, y: 1454 },
+        verification: {
+          layer: 'outdoor_pois',
+          geometry: 'line',
+          requiredAttributes: ['kind', 'name'],
+        },
+      }),
+    ).rejects.toThrow(/has no line geometry/);
   });
 });

@@ -8,10 +8,12 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 
 import { computeBuildId, computeRunId, isBuildId } from './build-id.mjs';
 import {
+  javaProfileArgs,
   osmiumCatArgs,
   osmiumFileinfoArgs,
   osmiumTagsFilterArgs,
@@ -33,11 +35,12 @@ import { BuildError, BuildConfigError } from './errors.mjs';
 import { runCommand } from './exec.mjs';
 import { fileSize, pathExists, removePath, sha256File, sha256Text } from './fs.mjs';
 import { repairHeader, serialiseHeader } from './header.mjs';
-import { renderExpressionsFile, unionExpressions } from './expressions.mjs';
+import { renderExpressionsFile, sourceExpressionUnion } from './expressions.mjs';
 import { installArchives } from './install.mjs';
 import { createBuildManifest } from './manifest.mjs';
 import { deriveMinZoom, resolveProfile } from './profiles.mjs';
 import { resolveArchiveDir } from '../lib/config.mjs';
+import { PmtilesReader } from '../lib/pmtiles.mjs';
 import {
   detectJavaVersion,
   detectOsmiumVersion,
@@ -368,6 +371,17 @@ function fixtureRecord(repoRoot, planet) {
   };
 }
 
+async function archiveMinimumZoom(archivePath) {
+  const reader = new PmtilesReader(archivePath);
+
+  try {
+    await reader.open();
+    return reader.getMinimumZoom();
+  } finally {
+    await reader.close();
+  }
+}
+
 async function findExistingArchive(outputRoot, sourceName) {
   const candidates = [path.join(outputRoot, sourceName, 'current.pmtiles')];
 
@@ -477,10 +491,10 @@ async function buildFromArchive({
   }
 
   const { manifest: existingManifest } = await readExistingManifest(archivePath);
-  const profile = await resolveProfile(repoRoot, sourceConfig.profile);
-  const profileContents = await readFile(profile.schemaPath, 'utf8');
+  const profile = await resolveProfile(repoRoot, sourceConfig.profile, sourceConfig);
+  const profileContents = await readFile(profile.filePath, 'utf8');
   const profileHash = sha256Text(profileContents);
-  const expressions = unionExpressions([sourceConfig.expressions]);
+  const expressions = sourceExpressionUnion(config.sources);
   const filterHash = sha256Text(renderExpressionsFile(expressions));
   const fixtureOption = firstValue(options.fixture);
   const mode =
@@ -587,7 +601,7 @@ async function buildFromArchive({
       },
     },
     profile: existingManifest?.profile ?? {
-      path: relativePath(repoRoot, profile.schemaPath),
+      path: relativePath(repoRoot, profile.filePath),
       sha256: profileHash,
     },
     filter: {
@@ -685,7 +699,7 @@ async function buildSource({
     });
   }
 
-  const profile = await resolveProfile(repoRoot, sourceConfig.profile);
+  const profile = await resolveProfile(repoRoot, sourceConfig.profile, sourceConfig);
   const planet = await resolvePlanetInput({
     repoRoot,
     options,
@@ -726,9 +740,9 @@ async function buildSource({
   });
   planetiler = { ...planetiler, ...ensured };
 
-  const profileContents = await readFile(profile.schemaPath, 'utf8');
+  const profileContents = await readFile(profile.filePath, 'utf8');
   const profileHash = sha256Text(profileContents);
-  const expressions = unionExpressions([sourceConfig.expressions]);
+  const expressions = sourceExpressionUnion(config.sources);
   const filterHash = sha256Text(renderExpressionsFile(expressions));
   const filterApplied = !options.skipFilter;
   const filterSkipped = Boolean(options.skipFilter);
@@ -769,6 +783,7 @@ async function buildSource({
   log(`Build run ${runId}`);
 
   try {
+    await removePath(workDir);
     await mkdir(workDir, { recursive: true });
     await mkdir(stagingSourceDir, { recursive: true });
 
@@ -800,26 +815,45 @@ async function buildSource({
       buildPbf = filteredPath;
     }
 
-    await runCommand(
-      'java',
-      planetilerArgs({
-        jarPath: planetiler.path,
-        schemaPath: profile.schemaPath,
-        osmPath: buildPbf,
-        outputPath: partialArchivePath,
-        tmpDir: path.join(workDir, 'planetiler-tmp'),
-        minzoom: sourceConfig.minzoom,
-        maxzoom: sourceConfig.maxzoom,
-      }),
-      { execFileImpl, maxBuffer: 64 * 1024 * 1024 },
-    );
+    const planetilerTmpDir = path.join(workDir, 'planetiler-tmp');
+    const profileArgs =
+      profile.kind === 'java'
+        ? javaProfileArgs({
+            heap: profile.heap,
+            jarPath: planetiler.path,
+            profilePath: profile.filePath,
+            osmPath: buildPbf,
+            outputPath: partialArchivePath,
+            tmpDir: planetilerTmpDir,
+            minzoom: sourceConfig.minzoom,
+            maxzoom: sourceConfig.maxzoom,
+            threads: availableParallelism(),
+          })
+        : planetilerArgs({
+            jarPath: planetiler.path,
+            schemaPath: profile.filePath,
+            osmPath: buildPbf,
+            outputPath: partialArchivePath,
+            tmpDir: planetilerTmpDir,
+            minzoom: sourceConfig.minzoom,
+            maxzoom: sourceConfig.maxzoom,
+          });
+
+    await runCommand('java', profileArgs, {
+      execFileImpl,
+      maxBuffer: 64 * 1024 * 1024,
+    });
 
     const { stdout } = await runCommand('pmtiles', pmtilesShowHeaderArgs(partialArchivePath), {
       execFileImpl,
     });
     const parsedHeader = JSON.parse(stdout);
+    const headerMinZoom =
+      profile.kind === 'yaml'
+        ? (deriveMinZoom(profileContents) ?? parsedHeader.minzoom)
+        : await archiveMinimumZoom(partialArchivePath);
     const header = repairHeader(parsedHeader, {
-      minzoom: deriveMinZoom(profileContents) ?? parsedHeader.minzoom,
+      minzoom: headerMinZoom,
     });
     const headerPath = path.join(workDir, 'header.json');
     await writeFile(headerPath, serialiseHeader(header), 'utf8');
@@ -867,7 +901,7 @@ async function buildSource({
         osmium: toolchain.osmium,
       },
       profile: {
-        path: relativePath(repoRoot, profile.schemaPath),
+        path: relativePath(repoRoot, profile.filePath),
         sha256: profileHash,
       },
       filter: {

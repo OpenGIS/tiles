@@ -75,7 +75,34 @@
       ],
       "archiveDir": "data/routes",
       "minzoom": 8,
-      "maxzoom": 14
+      "maxzoom": 14,
+      "build": {
+        "profile": "routes",
+        "profileKind": "java",
+        "profileFile": "build/profiles/routes.java",
+        "heap": "2g",
+        "minzoom": 8,
+        "maxzoom": 14,
+        "expressions": [
+          "r/route=*hiking*",
+          "r/route=*bicycle*",
+          "r/route=*foot*",
+          "r/route=*walking*"
+        ],
+        "sampleTiles": [
+          { "z": 13, "x": 1465, "y": 2735 },
+          { "z": 12, "x": 733, "y": 1367 }
+        ],
+        "verification": {
+          "layer": "outdoor_routes",
+          "geometry": "line",
+          "requiredAttributes": ["activity", "activities"]
+        },
+        "sizeFloor": {
+          "fixture": 65536,
+          "planet": 104857600
+        }
+      }
     },
     "paths": {
       "kind": "pmtiles",
@@ -86,7 +113,37 @@
       ],
       "archiveDir": "data/paths",
       "minzoom": 9,
-      "maxzoom": 13
+      "maxzoom": 13,
+      "build": {
+        "profile": "paths",
+        "profileKind": "java",
+        "profileFile": "build/profiles/paths.java",
+        "heap": "2g",
+        "minzoom": 9,
+        "maxzoom": 13,
+        "expressions": [
+          "r/route=*hiking*",
+          "r/route=*bicycle*",
+          "r/route=*foot*",
+          "r/route=*walking*",
+          "w/highway=path",
+          "w/highway=footway",
+          "w/highway=track"
+        ],
+        "sampleTiles": [
+          { "z": 13, "x": 1465, "y": 2735 },
+          { "z": 13, "x": 1469, "y": 2739 }
+        ],
+        "verification": {
+          "layer": "outdoor_paths",
+          "geometry": "line",
+          "requiredAttributes": ["class", "network"]
+        },
+        "sizeFloor": {
+          "fixture": 131072,
+          "planet": 104857600
+        }
+      }
     },
     "contours": {
       "kind": "contour",

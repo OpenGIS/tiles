@@ -7,13 +7,14 @@ Small, API-only tile server for OpenStreetMap-derived outdoor layers, with on-de
 
 ## Status
 
-Phases 1–3 are implemented: a PMTiles serving core, a local Vite and MapLibre harness, and on-demand
-contours. The server serves `pois`, `routes` and `paths` from PMTiles archives and generates
-`contours` from a worldwide elevation model.
+Phases 1–4 are implemented: a PMTiles serving core, a local Vite and MapLibre harness, on-demand
+contours, and the local build pipeline. The server serves `pois`, `routes` and `paths` from PMTiles
+archives and generates `contours` from a worldwide elevation model. `bin/ogis.mjs build` turns an OSM
+PBF into verified, content-addressed archives for the three PMTiles sources, in fixture or planet
+mode.
 
-Build pipelines (Phase 4), provisioning (Phase 5), planet build (Phase 6) and hardening (Phase 7)
-remain pending. The server is API-only; the harness is a development tool, not a production
-frontend.
+Provisioning (Phase 5), the production planet run (Phase 6) and hardening (Phase 7) remain pending.
+The server is API-only; the harness is a development tool, not a production frontend.
 
 ## Quick start
 
@@ -45,6 +46,24 @@ Canmore–Banff basemap and a four-source panel for `pois`, `routes`, `paths` an
 > immediately and needs no archive; its tile requests depend on the configured DEM provider.
 > Supplying only `data/pois/current.pmtiles` makes `pois` available; `routes` and `paths` remain
 > missing.
+
+## Build pipeline
+
+`bin/ogis.mjs build` (also `npm run build:tiles`) builds the `pois`, `routes` and `paths` archives
+from an OSM PBF. Fixture mode is the local and test path; planet mode uses a pinned planet PBF, date
+and SHA-256.
+
+```sh
+npm run build:tiles -- --fixture=test/fixtures/alberta-canmore.osm.pbf
+npm run build:tiles -- --fixture=test/fixtures/alberta-canmore.osm.pbf --only=paths --install
+```
+
+Output is `dist/<buildId>/<source>/current.pmtiles` plus `build.json`; build IDs are
+content-addressed (`fixture-<12 hex>` or `<YYYYMMDD>-<12 hex>`). `--install` promotes an archive to
+`data/<source>/`, rotating the valid current pair to `previous` for rollback. The pipeline validates
+the input, applies one shared osmium filter, runs the Planetiler profile, repairs the PMTiles header,
+verifies the archive and sample tiles, and writes a per-source manifest. Flags, profiles, verification
+rules and the Alberta Canmore fixture are in [docs/5.pipelines.md](docs/5.pipelines.md).
 
 ## Configuration
 
@@ -147,41 +166,53 @@ data/pois/
 
 - `current.pmtiles` is required and served by unversioned tile URLs.
 - `previous.pmtiles` is the optional rollback archive, served only by its versioned URL.
-- `current.json` and `previous.json` are optional sidecars that may contain `{ "buildId": "..." }`;
-  without them the build IDs default to `current` and `previous`.
+- `current.json` and `previous.json` are optional sidecars. The build pipeline writes full build
+  manifests there; the server reads only `buildId`. Without them the build IDs default to `current`
+  and `previous`.
 - A missing or unreadable current archive marks the source unavailable. A missing previous archive
   only removes the rollback URL.
 - Archives are opened at startup, so replacing one requires a restart.
 
-Contour sources have no `data/` directory and no archive. Atomic promote and rollback remain future
-operational steps; the `current`/`previous` layout and immutable versioned URLs support them.
+Contour sources have no `data/` directory and no archive. `--install` in the build pipeline performs
+the swap: it writes the new pair, rotates a valid current pair to `previous`, and restores the old
+files if any step fails.
 
 ## Testing
 
 ```sh
 npm test
+npm run test:build
 npm run test:e2e
 npm run format:check
 ```
 
-Unit and integration tests use Vitest. Fixtures live in `test/fixtures/`: a small POI archive with
-recorded SHA-256 and provenance, and a committed 3×3 Canmore DEM block with per-tile checksums. These
-tests bind ephemeral ports and use the gitignored `tmp/` directory for temporary archives.
+Unit and integration tests use Vitest. `npm run test:build` is the end-to-end build suite: it builds
+all three sources from `test/fixtures/alberta-canmore.osm.pbf` into `tmp/build` and checks archives,
+manifests and sample tiles. It needs Java 21+, osmium and the pmtiles CLI. `npm test` covers unit and
+integration tests, including the build modules with injected command and fetch implementations, and
+excludes the end-to-end build suite.
+
+Fixtures live in `test/fixtures/`: a small POI archive with recorded SHA-256 and provenance, a
+committed 3×3 Canmore DEM block with per-tile checksums, and the Alberta Canmore build fixture (bbox
+`-115.65,50.95,-115.05,51.35`). Tests bind ephemeral ports and use the gitignored `tmp/` directory
+for temporary archives.
 
 `npm run test:e2e` runs the Playwright smoke test against a fixture manifest whose PMTiles archives
 are absent: three sources are unavailable and contours use the local DEM fixture. Playwright uses
-ports `11010` and `11011`, reusing existing servers outside CI. It checks the rendered map, the
+ports `11012` and `11013`, reusing existing servers outside CI. It checks the rendered map, the
 four-source panel and attribution, asserts a real contour tile, and rejects console errors, page
 errors, failed responses and external requests.
 
 ## Documentation
 
-- [Architecture](docs/2.architecture.md) — runtime shape, manifest, data layout, PMTiles reader,
-  contour source, HTTP contract, security and limitations.
+- [Architecture](docs/2.architecture.md) — runtime shape, manifest, data layout, build pipeline
+  relationship, PMTiles reader, contour source, HTTP contract, security and limitations.
 - [Dev harness](docs/3.dev-harness.md) — the offline Vite and MapLibre harness, vendored basemap,
   contour fixture, ports and browser smoke test.
 - [Contours](docs/4.contours.md) — generation flow, configuration, thresholds, caching, failure
   semantics and attribution.
+- [Build pipelines](docs/5.pipelines.md) — the `ogis build` command, stages, profiles, filter union,
+  output layout, install and rollback, verification and the Canmore fixture.
 - [Documentation index](docs/README.md) — reading order and planned pages.
 
 ## Data and licences

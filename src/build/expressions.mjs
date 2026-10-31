@@ -41,6 +41,14 @@ export function unionExpressions(groups) {
   return normaliseExpressions(union);
 }
 
+export function sourceExpressionUnion(sources) {
+  const groups = Object.values(sources ?? {})
+    .map((source) => source?.expressions)
+    .filter((expressions) => Array.isArray(expressions));
+
+  return unionExpressions(groups);
+}
+
 export function renderExpressionsFile(expressions) {
   return `${normaliseExpressions(expressions).join('\n')}\n`;
 }

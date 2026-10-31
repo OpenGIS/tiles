@@ -5,10 +5,24 @@ import { pathExists } from './fs.mjs';
 
 const PROFILES = {
   pois: {
-    schema: 'build/profiles/pois.yml',
+    kind: 'yaml',
+    file: 'build/profiles/pois.yml',
     layer: 'outdoor_pois',
   },
+  routes: {
+    kind: 'java',
+    file: 'build/profiles/routes.java',
+    layer: 'outdoor_routes',
+  },
+  paths: {
+    kind: 'java',
+    file: 'build/profiles/paths.java',
+    layer: 'outdoor_paths',
+  },
 };
+
+const PROFILE_KINDS = ['yaml', 'java'];
+const DEFAULT_HEAP = '2g';
 
 export function deriveMinZoom(schemaContents) {
   const zooms = [...String(schemaContents).matchAll(/^\s*min_zoom:\s*(\d+)\s*$/gm)].map((match) =>
@@ -29,13 +43,33 @@ export function describeProfile(profile) {
   return { ...entry };
 }
 
-export async function resolveProfile(repoRoot, profile) {
-  const entry = describeProfile(profile);
-  const schemaPath = path.join(repoRoot, entry.schema);
+export function profileNames() {
+  return Object.keys(PROFILES);
+}
 
-  if (!(await pathExists(schemaPath))) {
-    throw new BuildError(`Build profile file not found: ${entry.schema}`);
+export async function resolveProfile(repoRoot, profile, overrides = {}) {
+  const entry = describeProfile(profile);
+  const kind = overrides.profileKind ?? entry.kind;
+
+  if (!PROFILE_KINDS.includes(kind)) {
+    throw new BuildError(
+      `Profile "${profile}" has an unknown kind "${kind}"; expected one of ${PROFILE_KINDS.join(', ')}`,
+    );
   }
 
-  return { ...entry, schemaPath };
+  const file = overrides.profileFile ?? entry.file;
+  const filePath = path.join(repoRoot, file);
+
+  if (!(await pathExists(filePath))) {
+    throw new BuildError(`Build profile file not found: ${file}`);
+  }
+
+  return {
+    name: profile,
+    kind,
+    file,
+    layer: overrides.layer ?? entry.layer,
+    heap: overrides.heap ?? DEFAULT_HEAP,
+    filePath,
+  };
 }

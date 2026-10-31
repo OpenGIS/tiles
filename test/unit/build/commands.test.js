@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  javaProfileArgs,
   javaVersionArgs,
   osmiumCatArgs,
   osmiumFileinfoArgs,
@@ -92,6 +93,38 @@ describe('command construction', () => {
       '--maxzoom=16',
       '--force',
       '--use_wikidata=false',
+    ]);
+  });
+
+  it('builds the Java source-file profile command', () => {
+    expect(
+      javaProfileArgs({
+        heap: '2g',
+        jarPath: '/tools/planetiler.jar',
+        profilePath: '/repo/build/profiles/routes.java',
+        osmPath: '/work/filtered.osm.pbf',
+        outputPath: '/dist/build/routes/current.pmtiles',
+        tmpDir: '/work/planetiler-tmp',
+        minzoom: 8,
+        maxzoom: 14,
+        threads: 6,
+      }),
+    ).toEqual([
+      '-Xmx2g',
+      '-cp',
+      '/tools/planetiler.jar',
+      '/repo/build/profiles/routes.java',
+      '--osm_path=/work/filtered.osm.pbf',
+      '--download=false',
+      '--minzoom=8',
+      '--maxzoom=14',
+      '--nodemap-type=array',
+      '--nodemap-storage=mmap',
+      '--storage=mmap',
+      '--threads=6',
+      '--tmpdir=/work/planetiler-tmp',
+      '--output=/dist/build/routes/current.pmtiles',
+      '--force',
     ]);
   });
 

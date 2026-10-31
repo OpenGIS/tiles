@@ -62,6 +62,36 @@ export function planetilerArgs({
   ];
 }
 
+export function javaProfileArgs({
+  heap,
+  jarPath,
+  profilePath,
+  osmPath,
+  outputPath,
+  tmpDir,
+  minzoom,
+  maxzoom,
+  threads,
+}) {
+  return [
+    `-Xmx${heap}`,
+    '-cp',
+    jarPath,
+    profilePath,
+    `--osm_path=${osmPath}`,
+    '--download=false',
+    `--minzoom=${minzoom}`,
+    `--maxzoom=${maxzoom}`,
+    '--nodemap-type=array',
+    '--nodemap-storage=mmap',
+    '--storage=mmap',
+    `--threads=${threads}`,
+    `--tmpdir=${tmpDir}`,
+    `--output=${outputPath}`,
+    '--force',
+  ];
+}
+
 export function pmtilesShowHeaderArgs(archivePath) {
   return ['show', '--header-json', archivePath];
 }

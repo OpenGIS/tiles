@@ -4,6 +4,7 @@ import {
   hashExpressions,
   normaliseExpressions,
   renderExpressionsFile,
+  sourceExpressionUnion,
   unionExpressions,
 } from '../../../src/build/expressions.mjs';
 import { BuildError } from '../../../src/build/errors.mjs';
@@ -38,6 +39,40 @@ describe('unionExpressions', () => {
 
   it('rejects an empty group', () => {
     expect(() => unionExpressions([[]])).toThrow(BuildError);
+  });
+});
+
+describe('sourceExpressionUnion', () => {
+  it('merges POI, route and path expressions without duplicates', () => {
+    const sources = {
+      pois: { expressions: ['nwr/tourism=viewpoint', 'nwr/amenity=shelter'] },
+      routes: { expressions: ['r/route=*hiking*', 'r/route=*bicycle*'] },
+      paths: {
+        expressions: ['r/route=*hiking*', 'w/highway=path', 'w/highway=footway'],
+      },
+    };
+
+    expect(sourceExpressionUnion(sources)).toEqual([
+      'nwr/tourism=viewpoint',
+      'nwr/amenity=shelter',
+      'r/route=*hiking*',
+      'r/route=*bicycle*',
+      'w/highway=path',
+      'w/highway=footway',
+    ]);
+  });
+
+  it('preserves source order while removing repeated expressions', () => {
+    const sources = {
+      routes: { expressions: ['r/route=*hiking*', 'r/route=*foot*'] },
+      paths: { expressions: ['r/route=*foot*', 'w/highway=track'] },
+    };
+
+    expect(sourceExpressionUnion(sources)).toEqual([
+      'r/route=*hiking*',
+      'r/route=*foot*',
+      'w/highway=track',
+    ]);
   });
 });
 
