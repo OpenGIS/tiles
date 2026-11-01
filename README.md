@@ -8,48 +8,29 @@ Small, API-only tile server for OpenStreetMap-derived outdoor layers, with on-de
 ## Status
 
 Phases 1–6 are complete and Phase 7 is in progress. The PMTiles serving core, Vite and MapLibre
-harness, on-demand contours, local build pipeline, Phase 5 operations and the Phase 6 production
-planet run are complete, and the Phase 7 edge-protection slice is deployed. The live service at
-<https://tile.ogis.app> runs on a Hetzner CX23 in `nbg1` with Ubuntu 26.04, systemd
-(`ogis-tiles.service`) and nginx with TLS from certbot. Data lives under `/opt/ogis-tiles/data`.
+harness, on-demand contours, local and remote build pipelines, Phase 5 operations and the Phase 6
+production planet run are complete, and the Phase 7 edge-protection slice is deployed.
 
-The server serves planet archives for `pois`, `routes` and `paths` built from the pinned 2026-10-26
-OpenStreetMap snapshot, plus on-demand `contours`. `config/layers.json` pins the dated snapshot URL,
-date, SHA-256 and MD5. The archives were built on a disposable CPX62 build box, transferred to the
-live server, verified against their build manifests and promoted one source at a time; the previous
-pairs remain available for rollback. Phase 5 added the `provision`, `deploy`, `status`, `promote` and
-`rollback` commands to `bin/ogis.mjs`, and disposable remote build boxes through
-`bin/ogis.mjs build --remote`. Planet builds accept a SHA-256 or MD5 checksum pin; the build manifest
-records the verified MD5 pin, when supplied, beside the actual SHA-256. Phase 7 is in progress:
-per-IP edge protection and access logging are deployed; monitoring, automation and the other
-hardening items remain. The server is API-only; the harness is a development tool, not a production
-frontend.
+The live service at <https://tile.ogis.app> runs on a Hetzner CX23 in `nbg1` with Ubuntu 26.04,
+systemd (`ogis-tiles.service`) and nginx with TLS from certbot. Data lives under
+`/opt/ogis-tiles/data`. It serves planet archives for `pois`, `routes` and `paths` built from the
+pinned 2026-10-26 OpenStreetMap snapshot, plus on-demand `contours`. `config/layers.json` pins the
+dated snapshot URL, date, SHA-256 and MD5. The archives were built on a disposable CPX62 build box,
+transferred to the live server, verified against their build manifests and promoted one source at a
+time; the previous pairs remain available for rollback.
 
-### Operations
+Phase 7 is in progress: per-IP edge protection and access logging are deployed; monitoring, scheduled
+refreshes, authentication and the other hardening items remain. The server is API-only; the harness is
+a development tool, not a production frontend.
 
-The live service is operated from a checkout with a filled `.env`. See
-[docs/6.operations.md](docs/6.operations.md) for the runbook, including edge limits and access logs,
-and [docs/7.roadmap.md](docs/7.roadmap.md) for phase status and the remaining hardening.
+## Operations
 
-### Edge protection
-
-nginx applies per-IP limits to the live site. PMTiles tile routes allow `100 r/s`, burst
-`200` and `40` concurrent connections per IP; contour tile routes allow `10 r/s`, burst `40` and `8`
-concurrent connections. Excess requests receive `429` with `Retry-After: 1`, which is distinct
-from the application's `503` `source_unavailable`, `upstream_unavailable` and not-ready responses.
-`/health`, `/ready`, `/sources`, `/` and every TileJSON `/<source>.json` route are unmetered. The
-same configuration also sets server-level body and timeout limits and writes a per-host `ogis`
-access log with status, `rt`, `urt` and `cache`.
-
-The values are exported `EDGE_LIMITS` constants in [`src/deploy/render.mjs`](src/deploy/render.mjs),
-not environment variables; changing them requires a code change and `ogis deploy`. Provisioning
-installs only the global body limit and timeouts, while the first deploy installs the per-route limits
-and access log. Deploy validates with `nginx -t` before reload and restores the previous site
-configuration on failure. To undo a limit change, revert it and redeploy. The limits key on
-`$binary_remote_addr`, so adding a CDN or reverse proxy later requires trusted real-IP handling;
-otherwise all clients share one bucket. See
-[docs/6.operations.md](docs/6.operations.md#edge-limits-and-throttling) for 429 handling, log fields,
-a controlled burst and safe tuning.
+The live service is operated from a checkout with a filled `.env`. The CLI (`node bin/ogis.mjs`)
+provides `status`, `deploy`, `promote --source=<name>` and `rollback --source=<name>`; `provision`
+rebuilds the server from cloud-init. nginx applies per-IP limits to tile routes and writes a per-host
+access log. Excess requests receive `429` with `Retry-After: 1`, distinct from the application's `503`
+responses. See [docs/6.operations.md](docs/6.operations.md) for the runbook, edge limits, logs and
+incident checklist.
 
 ## Quick start
 
@@ -61,8 +42,8 @@ npm install
 npm start
 ```
 
-`npm start` loads `.env` when present and listens on the host and port from `config/layers.json`,
-by default `127.0.0.1:11010`. Then:
+`npm start` loads `.env` when present and listens on the host and port from `config/layers.json`, by
+default `127.0.0.1:11010`. Then:
 
 ```sh
 curl -s http://127.0.0.1:11010/health
@@ -71,7 +52,7 @@ curl -s http://127.0.0.1:11010/contours.json
 
 To preview the map, run `npm run dev`. It starts the tile server on `127.0.0.1:11010` and the Vite
 harness on `127.0.0.1:11011`; open <http://127.0.0.1:11011>. The harness serves a vendored
-Canmore–Banff basemap and a four-source panel for `pois`, `routes`, `paths` and `contours`. See
+Canmore–Banff basemap and a panel for `pois`, `routes`, `paths` and `contours`. See
 [docs/3.dev-harness.md](docs/3.dev-harness.md) for provenance, ports and the browser test.
 
 > [!WARNING]
@@ -81,106 +62,6 @@ Canmore–Banff basemap and a four-source panel for `pois`, `routes`, `paths` an
 > immediately and needs no archive; its tile requests depend on the configured DEM provider.
 > Supplying only `data/pois/current.pmtiles` makes `pois` available; `routes` and `paths` remain
 > missing.
-
-## Build pipeline
-
-`bin/ogis.mjs build` (also `npm run build:tiles`) builds the `pois`, `routes` and `paths` archives
-from an OSM PBF. Fixture mode is the local and test path; planet mode requires a pinned planet PBF,
-a planet date and at least one checksum. Pin SHA-256 with `PLANET_SHA256`, `--planet-sha256` or
-`build.planet.sha256` (preferred), or MD5 with `PLANET_MD5`, `--planet-md5` or `build.planet.md5`.
-Flags win over the environment, which wins over `config/layers.json`. Both are verified when both are
-supplied. A build pinned only by MD5 computes the PBF's SHA-256 for the manifest, which records
-`planet.md5` (the verified pin) alongside `planet.sha256` (the actual digest).
-
-Fixture builds use the adjacent fixture manifest checksum when present; an explicit `--planet-sha256`
-can override it. Ambient planet pins do not affect fixture checksums, and MD5 pins apply only to
-planet inputs.
-
-```sh
-npm run build:tiles -- --fixture=test/fixtures/alberta-canmore.osm.pbf
-npm run build:tiles -- --fixture=test/fixtures/alberta-canmore.osm.pbf --only=paths --install
-```
-
-Output is `dist/<buildId>/<source>/current.pmtiles` plus `build.json`; build IDs are
-content-addressed (`fixture-<12 hex>` or `<YYYYMMDD>-<12 hex>`). `--install` promotes an archive to
-`data/<source>/`, rotating the valid current pair to `previous` for rollback. The pipeline validates
-the input, applies one shared osmium filter, runs the Planetiler profile, repairs the PMTiles header,
-verifies the archive and sample tiles, and writes a per-source manifest. Flags, profiles, verification
-rules and the Alberta Canmore fixture are in [docs/5.pipelines.md](docs/5.pipelines.md).
-
-### Remote builds
-
-`--remote` builds on a disposable Hetzner Cloud box and transfers each archive pair to the tile
-server's `data/incoming/` directory. It never promotes: run `bin/ogis.mjs promote --source=<name>`
-one source at a time afterwards. Use `--dry-run` to inspect the plan; creating a box needs `--yes`
-because the box is billable while it exists. The default `cpx62` box has the 640 GB disk a filtered
-planet build needs, while the tile server remains a `cx23` that is upgraded manually to `cx33` when
-its data disk fills.
-
-- `--keep-build-box` (or `--no-destroy`) leaves the box running after a successful build; delete it
-  manually when finished.
-- `--no-transfer` builds and keeps the box because the only output would otherwise be destroyed.
-- A failure before the build starts destroys the box unless it is kept; a failure during or after
-  the build keeps the box and log for inspection.
-- Name-based cleanup only deletes a server labelled exactly `managed-by=ogis-tiles` and
-  `role=build-box`.
-
-The preflight checks the planet pins or fixture, that `CONFIG_PATH`/`--fixture`/`--planet-pbf` exist
-locally, the destination disk, and the restricted build key before creating anything. For a planet
-build it requires a planet URL, a planet date and at least one of `PLANET_SHA256` or `PLANET_MD5`, and
-rejects `planet-latest`; the resolved pins, including `--planet-md5`, are forwarded to the box.
-`.env*` files are excluded from the sync at any depth. macOS openrsync 2.6.9 is supported: it runs
-with `--no-dirs`, which suppresses the forwarded `--dirs` that `rrsync` rejects, and probes at the
-`rrsync` root without `--mkpath`. A Homebrew rsync 3.2.3 or newer is preferred when installed; it
-probes the per-source directory with `--mkpath`. Homebrew rsync is optional.
-
-`TILE_DATA_DIR` and `TILE_INCOMING_DIR` must match the provisioned `/opt/ogis-tiles/data` and
-`/opt/ogis-tiles/data/incoming` paths because the build key is fixed to that `rrsync` root. Planet
-builds use `heapPlanet`, overridable with `PLANET_BUILD_HEAP`; empty values are not forwarded.
-`BUILD_DESTINATION_MIN_FREE_BYTES`, `BUILD_BOX_TIMEOUT_MS`, `BUILD_BOX_TRANSFER_TIMEOUT_MS` and
-`TILE_APP_DIR` tune the preflight and timeouts. The full lifecycle, failure handling and the
-transfer flags are in [docs/6.operations.md](docs/6.operations.md#remote-builds) and
-[docs/5.pipelines.md](docs/5.pipelines.md#remote-builds).
-
-## Configuration
-
-`config/layers.json` is the single source of truth for the server and every source. Set
-`CONFIG_PATH` to load a different manifest. Relative `archiveDir` values resolve against the
-repository root, not the manifest's directory; an absolute path is trusted.
-
-The shipped manifest defines four sources: `pois`, `routes` and `paths` as PMTiles sources, and
-`contours` as a contour source. The excerpt below is abridged, showing `contours` and a subset of its
-thresholds. The full shipped configuration is in [`config/layers.json`](config/layers.json) and is
-documented in [docs/4.contours.md](docs/4.contours.md#configuration).
-
-```json
-{
-  "version": 1,
-  "server": { "host": "127.0.0.1", "port": 11010 },
-  "sources": {
-    "contours": {
-      "kind": "contour",
-      "title": "Terrain contours",
-      "description": "Contour lines generated on demand from a worldwide elevation model.",
-      "attribution": [{ "title": "Mapterhorn", "href": "https://mapterhorn.com/attribution" }],
-      "minzoom": 1,
-      "maxzoom": 15,
-      "demUrl": "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
-      "encoding": "terrarium",
-      "demMaxzoom": 12,
-      "cacheMaxAge": 86400,
-      "thresholds": { "8": [150, 750], "12": [20, 100] }
-    }
-  }
-}
-```
-
-The validator rejects unknown keys, unsupported source kinds, invalid source names, bad zoom ranges,
-mixing PMTiles and contour fields, non-http(s) attribution links and relative paths that escape the
-repository root. `HOST`, `PORT` and `PUBLIC_BASE_URL` override the manifest; `CONFIG_PATH` selects a
-different manifest. Forwarded headers are ignored unless `server.trustProxy` is `true`; a configured
-`publicBaseUrl` always wins. Full rules:
-[docs/2.architecture.md](docs/2.architecture.md#manifest).
 
 ## Endpoints
 
@@ -202,33 +83,54 @@ returns 200 and reports `degraded`; `/ready` returns 503 while a local source is
 probes the DEM provider.
 
 Tiles are `application/x-protobuf`; empty tiles return 204. Gzip-stored tiles are returned as stored
-when accepted, otherwise decompressed to identity. ETags include the build ID and coordinates and end
-in `-gzip`, `-identity` or `-empty`; a matching `If-None-Match` returns 304. Versioned URLs are
-immutable and PMTiles-only; unversioned PMTiles tiles and TileJSON use a short TTL; health and errors
-are `no-store`. Full contract:
-[docs/2.architecture.md](docs/2.architecture.md#http-contract).
+when accepted, otherwise decompressed to identity. Versioned URLs are immutable and PMTiles-only;
+unversioned PMTiles tiles and TileJSON use a short TTL; health and errors are `no-store`. Full
+contract: [docs/2.architecture.md](docs/2.architecture.md#http-contract).
 
-## Contours
+## Build and promote
 
-Contours are generated per request, not stored. The server fetches a 3×3 neighbourhood of WebP DEM
-tiles from Mapterhorn, decodes them with `sharp`, derives isolines with `maplibre-contour`, and
-returns a gzipped MVT in the `contours` layer with `ele` (metres) and `level` (0 minor, 1 major)
-properties.
+`node bin/ogis.mjs build` (also `npm run build:tiles`) builds the `pois`, `routes` and `paths` archives
+from an OSM PBF. Fixture mode is the local and test path; planet mode requires a dated planet snapshot and
+at least one checksum. Pin SHA-256 with `PLANET_SHA256`, `--planet-sha256` or
+`build.planet.sha256` (preferred), or MD5 with `PLANET_MD5`, `--planet-md5` or `build.planet.md5`.
+Flags win over the environment, which wins over `config/layers.json`. Both are verified when both are
+supplied.
 
-- Contour tiles exist only at the unversioned URL `/contours/{z}/{x}/{y}.pbf`; a versioned contour
-  URL returns 404.
-- The ETag uses a configuration-derived build ID, so changing the DEM URL, encoding, zoom range or
-  thresholds changes every ETag.
-- Contour responses use `Cache-Control: public, max-age=86400` from `cacheMaxAge`; unlike versioned
-  PMTiles tiles they are not immutable.
-- Missing DEM coverage (a 204, 404 or 410 from any neighbour) makes the whole tile empty (204). The
-  server does not fill gaps with 0 m.
-- A rate limit, server error or timeout returns 503 `upstream_unavailable` with `Retry-After`. A WebP
-  decode failure returns 500. CORS exposes `Retry-After` to browser clients.
-- Requests outside zoom 1–15 return 204 without contacting the provider.
+```sh
+npm run build:tiles -- --fixture=test/fixtures/alberta-canmore.osm.pbf
+npm run build:tiles -- --fixture=test/fixtures/alberta-canmore.osm.pbf --only=paths --install
+```
 
-Details, including the threshold table and failure mapping:
-[docs/4.contours.md](docs/4.contours.md).
+Output is `dist/<buildId>/<source>/current.pmtiles` plus `build.json`; build IDs are content-addressed
+(`fixture-<12 hex>` or `<YYYYMMDD>-<12 hex>`). `--install` promotes an archive to `data/<source>/`,
+rotating the valid current pair to `previous` for rollback. The pipeline validates the input, applies
+one shared osmium filter, runs the Planetiler profile, repairs the PMTiles header, verifies the archive
+and sample tiles, and writes a per-source manifest. Flags, profiles, verification rules and the
+Alberta Canmore fixture are in [docs/5.pipelines.md](docs/5.pipelines.md).
+
+`--remote` builds on a disposable Hetzner Cloud box and transfers each archive pair to the tile
+server's `data/incoming/` directory. It never promotes: run
+`node bin/ogis.mjs promote --source=<name>` one source at a time afterwards. Use `--dry-run` to inspect
+the plan; creating a box needs `--yes` because the box is billable while it exists. The default
+`cpx62` box has the disk a filtered planet build needs, while the tile server remains a `cx23` that is
+upgraded manually to `cx33` when its data disk fills. Full lifecycle, failure handling and transfer
+flags are in [docs/5.pipelines.md#remote-builds](docs/5.pipelines.md#remote-builds) and
+[docs/6.operations.md#remote-builds](docs/6.operations.md#remote-builds).
+
+## Configuration
+
+`config/layers.json` is the single source of truth for the server and every source. It defines four
+sources: `pois`, `routes` and `paths` as PMTiles sources, and `contours` as a contour source. Set
+`CONFIG_PATH` to load a different manifest. Relative `archiveDir` values resolve against the
+repository root, not the manifest's directory; an absolute path is trusted.
+
+The validator rejects unknown keys, unsupported source kinds, invalid source names, bad zoom ranges,
+mixing PMTiles and contour fields, non-http(s) attribution links and relative paths that escape the
+repository root. `HOST`, `PORT` and `PUBLIC_BASE_URL` override the manifest; `CONFIG_PATH` selects a
+different manifest. Forwarded headers are ignored unless `server.trustProxy` is `true`; a configured
+`publicBaseUrl` always wins. Full rules:
+[docs/2.architecture.md#manifest](docs/2.architecture.md#manifest). The shipped contour configuration
+is documented in [docs/4.contours.md#configuration](docs/4.contours.md#configuration).
 
 ## Data layout
 
@@ -252,11 +154,11 @@ data/pois/
 - Archives are opened at startup, so replacing one requires a restart.
 
 Contour sources have no `data/` directory and no archive. `--install` in the build pipeline performs
-the swap locally: it writes the new pair, rotates a valid current pair to `previous`, and restores
-the old files if any step fails. On the live server, `bin/ogis.mjs promote --source=<name>` installs
-a validated pair from `data/incoming/`, and `bin/ogis.mjs rollback --source=<name>` swaps the
-installed current and previous pairs. Both restart the service and wait for readiness before
-reporting success.
+the swap locally: it writes the new pair, rotates a valid current pair to `previous`, and restores the
+old files if any step fails. On the live server, `node bin/ogis.mjs promote --source=<name>` installs a
+validated pair from `data/incoming/`, and `node bin/ogis.mjs rollback --source=<name>` swaps the
+installed current and previous pairs. Both restart the service and wait for readiness before reporting
+success.
 
 ## Testing
 
@@ -269,37 +171,37 @@ npm run format:check
 
 Unit and integration tests use Vitest. `npm run test:build` is the end-to-end build suite: it builds
 all three sources from `test/fixtures/alberta-canmore.osm.pbf` into `tmp/build` and checks archives,
-manifests and sample tiles. It needs Java 21+, osmium and the pmtiles CLI. `npm test` covers unit and
-integration tests, including the build modules with injected command and fetch implementations, and
-excludes the end-to-end build suite.
+manifests and sample tiles. It needs Java 21+, osmium and the pmtiles CLI. `npm test` excludes the
+end-to-end build suite and covers the build modules with injected command and fetch implementations.
 
 Fixtures live in `test/fixtures/`: a small POI archive with recorded SHA-256 and provenance, a
 committed 3×3 Canmore DEM block with per-tile checksums, and the Alberta Canmore build fixture (bbox
-`-115.65,50.95,-115.05,51.35`). Tests bind ephemeral ports and use the gitignored `tmp/` directory
-for temporary archives.
+`-115.65,50.95,-115.05,51.35`). Unit and integration tests bind ephemeral ports; temporary archives go
+under the gitignored `tmp/` directory.
 
-`npm run test:e2e` runs the Playwright smoke test against a fixture manifest whose PMTiles archives
-are absent: three sources are unavailable and contours use the local DEM fixture. Playwright uses
-ports `11012` and `11013`, reusing existing servers outside CI. It checks the rendered map, the
-four-source panel and attribution, asserts a real contour tile, and rejects console errors, page
+`npm run test:e2e` runs the Playwright smoke test against a fixture manifest whose PMTiles archives are
+absent: three sources are unavailable and contours use the local DEM fixture. It checks the rendered
+map, the source panel and attribution, asserts a real contour tile, and rejects console errors, page
 errors, failed responses and external requests.
 
 ## Documentation
 
-- [Architecture](docs/2.architecture.md) — runtime shape, manifest, data layout, build pipeline
-  relationship, deployment topology, edge protection, PMTiles reader, contour source, HTTP contract,
-  security and limitations.
-- [Dev harness](docs/3.dev-harness.md) — the offline Vite and MapLibre harness, vendored basemap,
-  contour fixture, ports and browser smoke test.
-- [Contours](docs/4.contours.md) — generation flow, configuration, thresholds, caching, failure
-  semantics and attribution.
-- [Build pipelines](docs/5.pipelines.md) — the `ogis build` command, stages, planet pinning (SHA-256
-  and MD5), profiles, filter union, output layout, install and rollback, remote builds, verification
-  and the Canmore fixture.
-- [Operations](docs/6.operations.md) — status, deploy, promote and rollback, remote build lifecycle,
-  edge limits and access logs, capacity, TLS and cache, credentials and incident runbook.
-- [Roadmap](docs/7.roadmap.md) — Phases 1–6 complete, Phase 7 in progress and remaining deferrals.
-- [Documentation index](docs/README.md) — reading order and planned pages.
+Start with [0. Terminology](docs/0.terminology.md) and [1. Philosophy](docs/1.philosophy.md), then
+follow the [documentation index](docs/README.md) through architecture, harness, contours, pipelines
+and operations to the roadmap. [TODOS.md](TODOS.md) is the authoritative deferred-work backlog.
+
+| Page                                      | Answers                                                  |
+| ----------------------------------------- | -------------------------------------------------------- |
+| [0. Terminology](docs/0.terminology.md)   | What does this term mean?                                |
+| [1. Philosophy](docs/1.philosophy.md)     | Why is the system shaped this way?                       |
+| [2. Architecture](docs/2.architecture.md) | How does serving work, and what is the HTTP contract?    |
+| [3. Dev harness](docs/3.dev-harness.md)   | How do I preview the map locally?                        |
+| [4. Contours](docs/4.contours.md)         | How are contour tiles generated?                         |
+| [5. Pipelines](docs/5.pipelines.md)       | How are archives built and verified?                     |
+| [6. Operations](docs/6.operations.md)     | How do I deploy, promote, roll back and run the service? |
+| [7. Roadmap](docs/7.roadmap.md)           | What is complete, in progress and deferred?              |
+| [Documentation index](docs/README.md)     | Where do I start reading?                                |
+| [Deferred work](TODOS.md)                 | What is the detailed backlog?                            |
 
 ## Data and licences
 

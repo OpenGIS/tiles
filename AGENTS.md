@@ -1,6 +1,30 @@
 # Repository conventions
 
-Read [README.md](README.md) and [docs/README.md](docs/README.md) first.
+## Read these first
+
+1. [README.md](README.md) — project overview, status, quick start and key operations.
+2. [docs/README.md](docs/README.md) — documentation index and numbered reading order.
+3. [docs/0.terminology.md](docs/0.terminology.md) — shared vocabulary.
+4. [docs/1.philosophy.md](docs/1.philosophy.md) — design principles behind the codebase.
+
+## Documentation map
+
+| Topic                                      | Document                                  |
+| ------------------------------------------ | ----------------------------------------- |
+| Terms                                      | [0. Terminology](docs/0.terminology.md)   |
+| Why the system is shaped this way          | [1. Philosophy](docs/1.philosophy.md)     |
+| Serving core, manifest, HTTP contract      | [2. Architecture](docs/2.architecture.md) |
+| Local Vite and MapLibre harness            | [3. Dev harness](docs/3.dev-harness.md)   |
+| On-demand contours                         | [4. Contours](docs/4.contours.md)         |
+| Build pipelines and remote builds          | [5. Pipelines](docs/5.pipelines.md)       |
+| Deploy, promote, rollback and runbook      | [6. Operations](docs/6.operations.md)     |
+| Phase status and completed edge protection | [7. Roadmap](docs/7.roadmap.md)           |
+| Detailed deferred-work backlog             | [TODOS.md](TODOS.md)                      |
+
+Numbered docs carry `git_hash` and `modified` frontmatter. If a code change touches documented
+behaviour, update the affected page and set `git_hash` to the current HEAD and `modified` to the
+change date. `README.md` has no frontmatter. `TODOS.md` is the authoritative deferred-work backlog and
+has no frontmatter.
 
 ## Stack
 

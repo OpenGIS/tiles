@@ -1,10 +1,11 @@
 # TODOS
 
-Deferred work and follow-up ideas for the OpenGIS tiles project. The authoritative roadmap is
-[docs/7.roadmap.md](docs/7.roadmap.md); this file adds the detail needed to resume an item without
-duplicating the roadmap's rationale. Every pending Phase 7 item has a section below. This is a
-planning and reference document, not a commitment or an ordered backlog. Commands below use
-`ogis` as shorthand for `node bin/ogis.mjs`.
+This is the authoritative deferred-work backlog for the OpenGIS tiles project. The
+[roadmap](docs/7.roadmap.md) records phase history and the completed Phase 7 edge-protection slice;
+the [documentation index](docs/README.md) is the place to start reading. Every pending Phase 7 item
+has a section below, with the detail needed to resume it: current state, options, recommendation,
+prerequisites and verification. This is a planning and reference document, not a commitment or an
+ordered backlog. Commands below use `ogis` as shorthand for `node bin/ogis.mjs`.
 
 ## Monitoring and alerting (deferred)
 
@@ -768,13 +769,4 @@ planning and reference document, not a commitment or an ordered backlog. Command
   - Is there a trademark or branding policy?
   - Does legal review need to happen before publication?
 
-## Related documentation
-
-- [Roadmap](docs/7.roadmap.md) — phase status, rationale and ordering for the remaining deferrals.
-- [Operations](docs/6.operations.md) — status, deploy, promote, rollback, remote builds, capacity,
-  TLS and incident runbook.
-- [Architecture](docs/2.architecture.md) — runtime shape, data layout, deployment topology, edge
-  protection, HTTP contract and limitations.
-- [Build pipelines](docs/5.pipelines.md) — build stages, planet pins, remote builds, verification and
-  rollback.
-- [Project README](README.md) — overview, quick start and current status.
+**Previous:** [7. Roadmap](docs/7.roadmap.md) · **Next:** [Documentation index](docs/README.md) · [Documentation index](docs/README.md)
