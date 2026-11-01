@@ -9,7 +9,7 @@ Small, API-only tile server for OpenStreetMap-derived outdoor layers, with on-de
 
 Phases 1–6 are complete and Phase 7 is in progress. The PMTiles serving core, Vite and MapLibre
 harness, on-demand contours, local build pipeline, Phase 5 operations and the Phase 6 production
-planet run are complete, and the Phase 7 edge-protection slice is implemented. The live service at
+planet run are complete, and the Phase 7 edge-protection slice is deployed. The live service at
 <https://tile.ogis.app> runs on a Hetzner CX23 in `nbg1` with Ubuntu 26.04, systemd
 (`ogis-tiles.service`) and nginx with TLS from certbot. Data lives under `/opt/ogis-tiles/data`.
 
@@ -21,9 +21,9 @@ pairs remain available for rollback. Phase 5 added the `provision`, `deploy`, `s
 `rollback` commands to `bin/ogis.mjs`, and disposable remote build boxes through
 `bin/ogis.mjs build --remote`. Planet builds accept a SHA-256 or MD5 checksum pin; the build manifest
 records the verified MD5 pin, when supplied, beside the actual SHA-256. Phase 7 is in progress:
-per-IP edge protection and access logging are implemented, with deployment still to follow;
-monitoring, automation and the other hardening items remain. The server is API-only; the harness is
-a development tool, not a production frontend.
+per-IP edge protection and access logging are deployed; monitoring, automation and the other
+hardening items remain. The server is API-only; the harness is a development tool, not a production
+frontend.
 
 ### Operations
 
@@ -33,7 +33,7 @@ and [docs/7.roadmap.md](docs/7.roadmap.md) for phase status and the remaining ha
 
 ### Edge protection
 
-Once deployed, nginx applies per-IP limits to the site. PMTiles tile routes allow `100 r/s`, burst
+nginx applies per-IP limits to the live site. PMTiles tile routes allow `100 r/s`, burst
 `200` and `40` concurrent connections per IP; contour tile routes allow `10 r/s`, burst `40` and `8`
 concurrent connections. Excess requests receive `429` with `Retry-After: 1`, which is distinct
 from the application's `503` `source_unavailable`, `upstream_unavailable` and not-ready responses.

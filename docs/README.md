@@ -1,5 +1,5 @@
 ---
-git_hash: d3dc393
+git_hash: 66698c9
 modified: 2026-11-01
 ---
 
@@ -25,7 +25,7 @@ pages are added as their phases land.
    remote build lifecycle, restarts and readiness, edge limits and access logs, capacity, TLS and
    cache, credentials and incident runbook.
 6. [7. Roadmap](7.roadmap.md) — Phases 1–6 complete, Phase 7 in progress with edge protection
-   implemented, and the remaining deferrals.
+   deployed, and the remaining deferrals.
 
 ## Planned pages
 
