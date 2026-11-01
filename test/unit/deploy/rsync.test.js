@@ -1,7 +1,13 @@
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
   detectRsync,
+  MODEL_EXCLUDES,
+  MODEL_INCLUDES,
   parseRsyncVersion,
   rsyncArguments,
   rsyncDestination,
@@ -117,5 +123,53 @@ describe('rsyncArguments', () => {
     expect(protectedArgs).toContain('--protect-args');
     expect(fallbackArgs).not.toContain('--protect-args');
     expect(protectedArgs.at(-1)).toBe('deploy@tile.ogis.app:/opt/ogis-tiles/');
+  });
+
+  it('excludes .env files at any depth and not just the repository root', () => {
+    const args = rsyncArguments({
+      repoRoot: '/repo',
+      config: CONFIG,
+      rsync: { command: 'rsync', protectArgs: true },
+    });
+
+    expect(args).toContain('--exclude=.env*');
+    expect(args).not.toContain('--exclude=/.env');
+    expect(args.indexOf('--exclude=.env*')).toBeLessThan(args.indexOf('--include=/src/***'));
+  });
+});
+
+const RSYNC_AVAILABLE = spawnSync('rsync', ['--version'], { encoding: 'utf8' }).status === 0;
+
+describe.skipIf(!RSYNC_AVAILABLE)('model sync filter', () => {
+  it('drops a nested .env.local while copying a normal config file', () => {
+    const scratchRoot = join(process.cwd(), '.opencode', 'tmp');
+    mkdirSync(scratchRoot, { recursive: true });
+
+    const root = mkdtempSync(join(scratchRoot, 'rsync-filter-'));
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+
+    try {
+      mkdirSync(join(source, 'src', 'config'), { recursive: true });
+      mkdirSync(destination, { recursive: true });
+      writeFileSync(join(source, 'src', 'config', 'layers.json'), '{"layers":[]}\n');
+      writeFileSync(join(source, 'src', 'config', '.env.local'), 'SECRET=1\n');
+      writeFileSync(join(source, 'package.json'), '{}\n');
+
+      execFileSync('rsync', [
+        '--archive',
+        ...MODEL_EXCLUDES,
+        ...MODEL_INCLUDES,
+        '--exclude=*',
+        `${source}/`,
+        `${destination}/`,
+      ]);
+
+      expect(existsSync(join(destination, 'src', 'config', 'layers.json'))).toBe(true);
+      expect(existsSync(join(destination, 'package.json'))).toBe(true);
+      expect(existsSync(join(destination, 'src', 'config', '.env.local'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "server": { "host": "127.0.0.1", "port": 11010 },
+  "build": {
+    "planet": { "date": "", "url": "", "sha256": "", "md5": "" },
+    "tools": {
+      "planetiler": {
+        "version": "0.10.2",
+        "url": "https://example.com/planetiler.jar",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "pmtiles": "1.31.2"
+    },
+    "outputDir": "dist"
+  },
+  "sources": {
+    "pois": {
+      "kind": "pmtiles",
+      "title": "Outdoor POIs",
+      "description": "Points of interest.",
+      "attribution": [
+        { "title": "OpenStreetMap", "href": "https://www.openstreetmap.org/copyright" }
+      ],
+      "archiveDir": "data/pois",
+      "minzoom": 12,
+      "maxzoom": 16,
+      "build": {
+        "profile": "pois",
+        "minzoom": 0,
+        "maxzoom": 16,
+        "expressions": ["nwr/tourism=viewpoint"],
+        "sampleTiles": [{ "z": 13, "x": 1471, "y": 2739 }],
+        "verification": {
+          "layer": "outdoor_pois",
+          "requiredAttributes": ["kind", "name"]
+        },
+        "sizeFloor": { "fixture": 4096, "planet": 104857600 }
+      }
+    }
+  }
+}

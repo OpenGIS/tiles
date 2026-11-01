@@ -9,7 +9,7 @@ import { parseDeployOptions, parseSourceOptions, parseStatusOptions } from '../s
 import { DeployError, resolveDeployConfig, withServerOverride } from '../src/deploy/config.mjs';
 import { runDeploy } from '../src/deploy/deploy.mjs';
 import { loadDeployLayers } from '../src/deploy/layers.mjs';
-import { promoteSource, rollbackSource } from '../src/deploy/promote.mjs';
+import { promoteSource, rollbackSource, waitForJson } from '../src/deploy/promote.mjs';
 import { sourceRemoteCommand } from '../src/deploy/remote.mjs';
 import { runRemote } from '../src/deploy/ssh.mjs';
 import { runDeployStatus, runServerStatus } from '../src/deploy/status.mjs';
@@ -32,6 +32,7 @@ const VALUE_FLAGS = new Map([
   ['planet-url', 'planetUrl'],
   ['planet-date', 'planetDate'],
   ['planet-sha256', 'planetSha256'],
+  ['planet-md5', 'planetMd5'],
   ['archive', 'archive'],
   ['output-dir', 'outputDir'],
   ['build-server-type', 'buildServerType'],
@@ -81,6 +82,7 @@ Options:
   --planet-url=<url>       Override the planet URL
   --planet-date=<date>     Override the planet date (YYYY-MM-DD)
   --planet-sha256=<hash>   Override the planet SHA-256
+  --planet-md5=<md5>       Override the planet MD5
   --skip-download          Do not download the planet PBF
   --skip-filter            Build directly from the input PBF
   --skip-build             Verify an existing archive without building
@@ -343,16 +345,18 @@ async function localRestart(config) {
 
 async function localSmoke(config) {
   const base = `http://127.0.0.1:${config.port}`;
+  const checks = [
+    ['/health', 'Local health check'],
+    ['/sources', 'Local sources check'],
+  ];
 
-  for (const pathname of ['/health', '/sources']) {
-    const response = await fetch(`${base}${pathname}`, {
-      signal: AbortSignal.timeout(5_000),
-      headers: { Accept: 'application/json' },
+  for (const [pathname, label] of checks) {
+    await waitForJson({
+      fetchImpl: globalThis.fetch,
+      url: `${base}${pathname}`,
+      label,
+      timeoutMs: 30_000,
     });
-
-    if (response.status !== 200) {
-      throw new DeployError(`${pathname} returned HTTP ${response.status}; expected 200`);
-    }
   }
 }
 

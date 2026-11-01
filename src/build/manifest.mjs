@@ -3,6 +3,7 @@ import { isRealCalendarDate, normaliseCalendarDate } from './dates.mjs';
 import { BuildError } from './errors.mjs';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const MD5_PATTERN = /^[a-f0-9]{32}$/;
 const PLANET_BUILD_ID_PATTERN = /^(\d{8})-[a-f0-9]{12}$/;
 
 function isPlainObject(value) {
@@ -281,6 +282,7 @@ export function createBuildManifest({
       date: normaliseCalendarDate(planet.date ?? '', 'planet.date'),
       url: planet.url ?? '',
       sha256: planet.sha256 ?? '',
+      md5: planet.md5 ?? '',
     },
     fixture: normaliseFixture(fixture),
     tools: {
@@ -371,6 +373,10 @@ export function validateBuildManifest(manifest) {
   }
   if (manifest.planet.sha256 !== '' && !SHA256_PATTERN.test(manifest.planet.sha256 ?? '')) {
     throw new BuildError('planet.sha256 must be empty or a SHA-256 digest');
+  }
+  const planetMd5 = manifest.planet.md5 ?? '';
+  if (planetMd5 !== '' && !MD5_PATTERN.test(planetMd5)) {
+    throw new BuildError('planet.md5 must be empty or an MD5 digest');
   }
 
   if (manifest.fixture !== undefined && manifest.fixture !== null) {

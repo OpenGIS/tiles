@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -21,6 +22,10 @@ async function makeTemp() {
 
 function relativeOutputDir(root, name = 'out') {
   return path.relative(repoRoot, path.join(root, name)).split(path.sep).join('/');
+}
+
+function md5Text(contents) {
+  return createHash('md5').update(contents).digest('hex');
 }
 
 afterEach(async () => {
@@ -298,6 +303,9 @@ describe('runBuild validation', () => {
     ['an empty --fixture', { fixture: '   ' }, /--fixture/],
     ['an invalid planet URL', { planetUrl: 'ftp://example.com/planet.osm.pbf' }, /http/],
     ['an uppercase planet SHA', { planetSha256: 'A'.repeat(64) }, /lowercase/],
+    ['a short planet MD5', { planetMd5: 'abc' }, /lowercase 32 character/],
+    ['an uppercase planet MD5', { planetMd5: 'A'.repeat(32) }, /lowercase 32 character/],
+    ['a non-hex planet MD5', { planetMd5: 'z'.repeat(32) }, /lowercase 32 character/],
     ['an impossible planet date', { planetDate: '2026-02-31' }, /calendar date/],
     ['a traversing output directory', { outputDir: '../dist' }, /--output-dir/],
     ['an empty output directory', { outputDir: '   ' }, /--output-dir/],
@@ -358,6 +366,90 @@ describe('runBuild validation', () => {
         warn: () => {},
       }),
     ).rejects.toThrow(/Planet PBF checksum mismatch/);
+  });
+
+  it('requires at least one planet checksum pin', async () => {
+    const root = await makeTemp();
+    const configPath = await writeFailureConfig(root);
+
+    await expect(
+      runBuild({
+        repoRoot,
+        configPath,
+        only: 'pois',
+        outputDir: relativeOutputDir(root),
+        log: () => {},
+        warn: () => {},
+      }),
+    ).rejects.toThrow(/build\.planet\.sha256 or build\.planet\.md5/);
+  });
+
+  it('rejects a local planet PBF whose actual MD5 is stale', async () => {
+    const root = await makeTemp();
+    const pbfPath = path.join(root, 'planet.osm.pbf');
+    await writeFile(pbfPath, 'planet payload', 'utf8');
+    const configPath = await writeFailureConfig(root);
+
+    await expect(
+      runBuild({
+        repoRoot,
+        configPath,
+        only: 'pois',
+        planetPbf: pbfPath,
+        planetDate: '2026-10-29',
+        planetMd5: 'a'.repeat(32),
+        outputDir: relativeOutputDir(root),
+        log: () => {},
+        warn: () => {},
+      }),
+    ).rejects.toThrow(/Planet PBF MD5 checksum mismatch/);
+  });
+
+  it('verifies both pins for a local planet PBF', async () => {
+    const root = await makeTemp();
+    const pbfPath = path.join(root, 'planet.osm.pbf');
+    const contents = 'planet payload';
+    await writeFile(pbfPath, contents, 'utf8');
+
+    await expect(
+      runBuild({
+        repoRoot,
+        only: 'pois',
+        planetPbf: pbfPath,
+        planetDate: '2026-10-29',
+        planetSha256: sha256Text(contents),
+        planetMd5: 'a'.repeat(32),
+        outputDir: relativeOutputDir(root),
+        log: () => {},
+        warn: () => {},
+      }),
+    ).rejects.toThrow(/Planet PBF MD5 checksum mismatch/);
+  });
+
+  it('accepts a local planet PBF with only an MD5 pin', async () => {
+    const root = await makeTemp();
+    await mkdir(path.dirname(fakeJarPath), { recursive: true });
+    await writeFile(fakeJarPath, fakeJarContents, 'utf8');
+    const pbfPath = path.join(root, 'planet.osm.pbf');
+    const contents = 'planet payload';
+    await writeFile(pbfPath, contents, 'utf8');
+    const configPath = await writeFailureConfig(root);
+    const execFileImpl = await makeFailingToolchain(root);
+
+    await expect(
+      runBuild({
+        repoRoot,
+        configPath,
+        only: 'pois',
+        planetPbf: pbfPath,
+        planetDate: '2026-10-29',
+        planetMd5: md5Text(contents),
+        outputDir: relativeOutputDir(root),
+        execFileImpl,
+        log: () => {},
+        warn: () => {},
+      }),
+    ).rejects.toThrow(/Failed to verify archive/);
   });
 });
 
@@ -614,9 +706,10 @@ describe('runBuild --skip-build', () => {
     const root = await makeTemp();
     const archivePath = await makeArchive(root);
     const execFileImpl = await makeToolMocks(root);
+    const configPath = await writeFailureConfig(root);
 
     await expect(
-      runSkipBuild({ root, archivePath, execFileImpl, fixture: undefined }),
+      runSkipBuild({ root, archivePath, execFileImpl, configPath, fixture: undefined }),
     ).rejects.toThrow(/planet date is required/i);
   });
 

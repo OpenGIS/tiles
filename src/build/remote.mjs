@@ -17,6 +17,7 @@ import {
   loadBuildConfig,
   normaliseOutputDir,
   normalisePlanetDate,
+  normalisePlanetMd5,
   normalisePlanetSha256,
   normalisePlanetUrl,
 } from './config.mjs';
@@ -76,8 +77,12 @@ export const BUILD_BOX_DISK_POLICY =
   'CPX62 provides a 640 GB disk, which supports filtered planet builds; --skip-filter needs a ' +
   'larger server type';
 
+// Hetzner/Ubuntu vendor cloud-config emits deprecation warnings (lists, chpasswd) that make an
+// otherwise healthy cloud-init exit 2, so tolerate exit 2 but still fail on a hard error (exit 1).
+// The tool checks that follow remain the real gate: a failed cloud-init that never installed the
+// toolchain still fails here.
 export const BUILD_BOX_READY_COMMAND = [
-  'cloud-init status --wait',
+  'cloud-init status --wait || test $? -eq 2',
   '/usr/local/bin/node --version',
   '/usr/local/bin/pmtiles version',
   'java -version',
@@ -104,6 +109,7 @@ const REMOTE_VALUE_FLAGS = [
   ['planetUrl', '--planet-url'],
   ['planetDate', '--planet-date'],
   ['planetSha256', '--planet-sha256'],
+  ['planetMd5', '--planet-md5'],
   ['outputDir', '--output-dir'],
   ['buildServerType', '--build-server-type'],
   ['buildLocation', '--build-location'],
@@ -359,32 +365,37 @@ export function resolveRemotePlanetPin({ options = {}, env = {}, config }) {
   const url = firstValue(options.planetUrl, env.PLANET_URL, config?.build?.planet?.url);
   const date = firstValue(options.planetDate, env.PLANET_DATE, config?.build?.planet?.date);
   const sha256 = firstValue(options.planetSha256, env.PLANET_SHA256, config?.build?.planet?.sha256);
+  const md5 = firstValue(options.planetMd5, env.PLANET_MD5, config?.build?.planet?.md5);
 
-  const missing = [
-    ['PLANET_URL', url],
-    ['PLANET_DATE', date],
-    ['PLANET_SHA256', sha256],
-  ]
-    .filter(([, value]) => value === '')
-    .map(([name]) => name);
+  const missing = [];
+  if (url === '') {
+    missing.push('PLANET_URL');
+  }
+  if (date === '') {
+    missing.push('PLANET_DATE');
+  }
+  if (sha256 === '' && md5 === '') {
+    missing.push('a checksum pin (PLANET_SHA256 or PLANET_MD5)');
+  }
 
   if (missing.length > 0) {
     throw new BuildConfigError(
-      `Planet builds require valid PLANET_URL, PLANET_DATE and PLANET_SHA256 before creating a ` +
-        `build box; missing ${missing.join(', ')}`,
+      `Planet builds require PLANET_URL, PLANET_DATE and at least one of PLANET_SHA256 or ` +
+        `PLANET_MD5 before creating a build box; missing ${missing.join(', ')}`,
     );
   }
 
   const resolved = {
     url: normalisePlanetUrl(url, 'Planet URL'),
     date: normalisePlanetDate(date, 'Planet date'),
-    sha256: normalisePlanetSha256(sha256, 'Planet SHA-256'),
+    sha256: sha256 === '' ? '' : normalisePlanetSha256(sha256, 'Planet SHA-256'),
+    md5: md5 === '' ? '' : normalisePlanetMd5(md5, 'Planet MD5'),
   };
 
   if (PLANET_LATEST_PATTERN.test(resolved.url)) {
     throw new BuildConfigError(
       `Planet URL "${resolved.url}" points at planet-latest; pin a dated planet snapshot with a ` +
-        'matching SHA-256 before creating a build box',
+        'matching SHA-256 or MD5 before creating a build box',
     );
   }
 
@@ -560,6 +571,10 @@ export function remoteBuildCommand({
 
   if (firstValue(options.planetSha256) !== '') {
     flags.push(buildFlag('planet-sha256', options.planetSha256));
+  }
+
+  if (firstValue(options.planetMd5) !== '') {
+    flags.push(buildFlag('planet-md5', options.planetMd5));
   }
 
   for (const [flag, enabled] of [
@@ -757,11 +772,12 @@ export function transferSourceCommand({
     `&& : > ${shellQuote(probePath)}`,
     `&& rsync --archive --mkpath ${sshOption} ${shellQuote(probePath)} ${probeDestination}`,
     '&& empty=$(mktemp -d)',
-    `&& rsync --archive --delete --include=${shellQuote('/current.pmtiles')} ` +
+    `&& rsync --archive --no-perms --omit-dir-times --delete ` +
+      `--include=${shellQuote('/current.pmtiles')} ` +
       `--include=${shellQuote('/build.json')} --include=${shellQuote('/.ogis-write-probe')} ` +
       `--exclude=${shellQuote('*')} ${sshOption} "$empty/" ${quotedDestination}`,
     '&& rmdir "$empty"',
-    `&& rsync --archive --compress --delay-updates --mkpath ${sshOption} ` +
+    `&& rsync --archive --compress --delay-updates --no-group --mkpath ${sshOption} ` +
       `"$src/current.pmtiles" "$src/build.json" ${quotedDestination}`,
   ].join(' ');
 }
@@ -1401,6 +1417,9 @@ export async function preflightBuildKey({
   const plan = preflightRsyncPlan({ targetHost, buildUser, source, rsync });
   const marker = quoteIfNeeded(plan.marker);
   const mkpath = plan.mkpath ? ['--mkpath'] : [];
+  // openrsync forwards --dirs to the server, which rrsync rejects. --no-dirs suppresses that
+  // forwarding and is a local client-side argument only, so it does not weaken the restricted key.
+  const noDirs = rsync.openrsync ? ['--no-dirs'] : [];
 
   try {
     await fsImpl.writeFile(localProbePath, '', { encoding: 'utf8', mode: 0o600 });
@@ -1408,16 +1427,19 @@ export async function preflightBuildKey({
 
     await execImpl(
       rsync.command,
-      ['--archive', ...mkpath, '-e', sshCommand, localProbePath, marker],
+      ['--archive', ...noDirs, ...mkpath, '-e', sshCommand, localProbePath, marker],
       { encoding: 'utf8', env: childEnvironment(env), timeoutMs },
     );
     await execImpl(
       rsync.command,
       [
         '--archive',
+        ...noDirs,
+        '--no-perms',
+        '--omit-dir-times',
         '--delete',
         `--include=${quoteIfNeeded('/.ogis-preflight-probe')}`,
-        `--exclude=${quoteIfNeeded('*')}`,
+        '--exclude=*',
         '-e',
         sshCommand,
         `${emptyDirectory}/`,
@@ -1535,13 +1557,14 @@ export async function runRemoteBuild({
   }
 
   // Ambient planet pins from .env belong to planet runs. Forwarding them into a fixture build makes
-  // the fixture checksum validate against a planet SHA, so only explicit flags survive.
+  // the fixture checksum validate against a planet checksum, so only explicit flags survive.
   if (firstValue(options.fixture) === '') {
     options = {
       ...options,
       planetUrl: firstValue(options.planetUrl, env.PLANET_URL),
       planetDate: firstValue(options.planetDate, env.PLANET_DATE),
       planetSha256: firstValue(options.planetSha256, env.PLANET_SHA256),
+      planetMd5: firstValue(options.planetMd5, env.PLANET_MD5),
     };
 
     const pin = resolveRemotePlanetPin({ options, env, config });
@@ -1551,6 +1574,7 @@ export async function runRemoteBuild({
       planetUrl: pin.url,
       planetDate: pin.date,
       planetSha256: pin.sha256,
+      planetMd5: pin.md5,
     };
   }
 

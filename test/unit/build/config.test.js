@@ -20,6 +20,7 @@ function makeBuildConfig() {
         date: '',
         url: 'https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf',
         sha256: '',
+        md5: '',
       },
       tools: {
         planetiler: {
@@ -85,13 +86,26 @@ describe('validateBuildConfig', () => {
     expect(() => validateBuildConfig(raw)).toThrow(/build must be an object/i);
   });
 
+  it('accepts a planet MD5 and defaults it to empty when missing', () => {
+    const raw = makeBuildConfig();
+    raw.build.planet.md5 = 'b'.repeat(32);
+
+    expect(validateBuildConfig(raw).build.planet.md5).toBe('b'.repeat(32));
+
+    delete raw.build.planet.md5;
+    expect(validateBuildConfig(raw).build.planet.md5).toBe('');
+  });
+
   it.each([
     ['an unknown build key', (raw) => (raw.build.extra = true)],
     ['an invalid planet URL', (raw) => (raw.build.planet.url = 'ftp://example.com/planet')],
     ['an invalid planet SHA', (raw) => (raw.build.planet.sha256 = 'abc')],
+    ['an invalid planet MD5', (raw) => (raw.build.planet.md5 = 'abc')],
     ['an invalid planet date', (raw) => (raw.build.planet.date = '30-10-2026')],
     ['an impossible planet date', (raw) => (raw.build.planet.date = '2026-02-31')],
     ['an uppercase planet SHA', (raw) => (raw.build.planet.sha256 = 'A'.repeat(64))],
+    ['an uppercase planet MD5', (raw) => (raw.build.planet.md5 = 'A'.repeat(32))],
+    ['a non-hex planet MD5', (raw) => (raw.build.planet.md5 = 'g'.repeat(32))],
     ['an unknown tool', (raw) => (raw.build.tools.osmium = '1.0.0')],
     ['an invalid Planetiler SHA', (raw) => (raw.build.tools.planetiler.sha256 = 'abc')],
     ['a Planetiler URL without a SHA', (raw) => (raw.build.tools.planetiler.sha256 = '')],
@@ -284,6 +298,12 @@ describe('loadBuildConfig', () => {
     expect(config.sources.pois.verification).toEqual({
       layer: 'outdoor_pois',
       requiredAttributes: ['kind', 'name'],
+    });
+    expect(config.build.planet).toEqual({
+      date: '2026-10-26',
+      url: 'https://planet.openstreetmap.org/pbf/planet-261026.osm.pbf',
+      sha256: '63dfb50285e0b20e369963c49ce324ae38d5f0152337a7f7ad7ea66b914f8344',
+      md5: '77397f0ffeb2dae22e56fda30b1f36aa',
     });
     expect(config.build.tools.planetiler.version).toBe('0.10.2');
   });

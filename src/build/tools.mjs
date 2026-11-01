@@ -6,13 +6,19 @@ import { pipeline } from 'node:stream/promises';
 
 import { javaVersionArgs, osmiumVersionArgs, pmtilesVersionArgs } from './commands.mjs';
 import { BuildError } from './errors.mjs';
-import { pathExists, sha256File } from './fs.mjs';
+import { md5File, pathExists, sha256File } from './fs.mjs';
 import { runCommand } from './exec.mjs';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const PLANETILER_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-export async function downloadFile({ url, destination, expectedSha256 = '', fetchImpl = fetch }) {
+export async function downloadFile({
+  url,
+  destination,
+  expectedSha256 = '',
+  expectedMd5 = '',
+  fetchImpl = fetch,
+}) {
   if (!url) {
     throw new BuildError('A download URL is required');
   }
@@ -35,8 +41,18 @@ export async function downloadFile({ url, destination, expectedSha256 = '', fetc
       );
     }
 
+    if (expectedMd5) {
+      const md5 = await md5File(temporary);
+
+      if (md5 !== expectedMd5.toLowerCase()) {
+        throw new BuildError(
+          `MD5 checksum mismatch for ${path.basename(destination)}: expected ${expectedMd5}, received ${md5}`,
+        );
+      }
+    }
+
     await rename(temporary, destination);
-    return { sha256: digest };
+    return digest;
   } catch (error) {
     await rm(temporary, { force: true });
     throw error;
@@ -113,7 +129,7 @@ export async function ensurePlanetiler({ planetiler, toolsDir, fetchImpl = fetch
   const downloadPath = `${jarPath}.${process.pid}.download`;
 
   try {
-    const { sha256 } = await downloadFile({
+    const sha256 = await downloadFile({
       url: resolved.url,
       destination: downloadPath,
       expectedSha256: resolved.sha256,
@@ -203,7 +219,7 @@ export async function resolveExecutable(command, { execFileImpl } = {}) {
 export async function detectPmtiles({ execFileImpl } = {}) {
   const { stdout, stderr } = await runCommand('pmtiles', pmtilesVersionArgs(), { execFileImpl });
   const output = `${stdout}\n${stderr}`.trim();
-  const match = /^pmtiles\s+(.+)$/m.exec(output);
+  const match = /^pmtiles\s+(?:version\s+)?v?([^,\s]+)/m.exec(output);
 
   if (!match) {
     throw new BuildError('Unable to determine the local pmtiles version');
@@ -212,7 +228,7 @@ export async function detectPmtiles({ execFileImpl } = {}) {
   const executable = await resolveExecutable('pmtiles', { execFileImpl });
 
   return {
-    version: match[1].trim(),
+    version: match[1],
     sha256: await sha256File(executable),
   };
 }

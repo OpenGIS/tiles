@@ -19,8 +19,8 @@ export async function fileSize(target) {
   return (await stat(target)).size;
 }
 
-export async function sha256File(target) {
-  const hash = createHash('sha256');
+async function hashFile(target, algorithm) {
+  const hash = createHash(algorithm);
 
   await new Promise((resolve, reject) => {
     const stream = createReadStream(target);
@@ -30,6 +30,14 @@ export async function sha256File(target) {
   });
 
   return hash.digest('hex');
+}
+
+export async function sha256File(target) {
+  return hashFile(target, 'sha256');
+}
+
+export async function md5File(target) {
+  return hashFile(target, 'md5');
 }
 
 export function sha256Text(contents) {

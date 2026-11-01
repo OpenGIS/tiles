@@ -200,7 +200,7 @@ describe('runDeploy', () => {
     expect(args).toContain('--exclude=/test/');
     expect(args).toContain('--exclude=/tmp/');
     expect(args).toContain('--exclude=/dist/');
-    expect(args).toContain('--exclude=/.env');
+    expect(args).toContain('--exclude=.env*');
     expect(args).toContain('--exclude=/.opencode/');
     expect(args).toContain('--protect-args');
     expect(args).toContain('--include=/src/***');

@@ -7,12 +7,13 @@ import { BuildConfigError } from './errors.mjs';
 const SOURCE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 const PROFILE_PATTERN = /^[a-z][a-z0-9-]*$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const MD5_PATTERN = /^[a-f0-9]{32}$/;
 const EXPRESSION_PATTERN = /^[nwr]+\/\S+$/;
 const PLANETILER_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const KNOWN_MODES = ['fixture', 'planet'];
 
 const BUILD_KEYS = ['planet', 'tools', 'outputDir'];
-const PLANET_KEYS = ['date', 'url', 'sha256'];
+const PLANET_KEYS = ['date', 'url', 'sha256', 'md5'];
 const TOOL_KEYS = ['planetiler', 'pmtiles'];
 const PLANETILER_KEYS = ['version', 'url', 'sha256'];
 const SOURCE_BUILD_KEYS = [
@@ -96,6 +97,16 @@ export function normalisePlanetSha256(value, label = 'planet SHA-256') {
   return digest;
 }
 
+export function normalisePlanetMd5(value, label = 'planet MD5') {
+  const digest = requireString(value, label);
+
+  if (!MD5_PATTERN.test(digest)) {
+    throw new BuildConfigError(`${label} must be a lowercase 32 character hexadecimal digest`);
+  }
+
+  return digest;
+}
+
 export function normalisePlanetDate(value, label = 'planet date') {
   const date = requireString(value, label);
 
@@ -116,6 +127,11 @@ function optionalSha256(value, label) {
   return digest === '' ? '' : normalisePlanetSha256(digest, label);
 }
 
+function optionalMd5(value, label) {
+  const digest = requireString(value ?? '', label, { allowEmpty: true });
+  return digest === '' ? '' : normalisePlanetMd5(digest, label);
+}
+
 function validatePlanet(planet) {
   if (!isPlainObject(planet)) {
     throw new BuildConfigError('build.planet must be an object');
@@ -129,6 +145,7 @@ function validatePlanet(planet) {
     date: rawDate === '' ? '' : normalisePlanetDate(rawDate, 'build.planet.date'),
     url: optionalUrl(planet.url, 'build.planet.url'),
     sha256: optionalSha256(planet.sha256, 'build.planet.sha256'),
+    md5: optionalMd5(planet.md5, 'build.planet.md5'),
   };
 }
 

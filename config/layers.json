@@ -3,9 +3,10 @@
   "server": { "host": "127.0.0.1", "port": 11010 },
   "build": {
     "planet": {
-      "date": "",
-      "url": "https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf",
-      "sha256": ""
+      "date": "2026-10-26",
+      "url": "https://planet.openstreetmap.org/pbf/planet-261026.osm.pbf",
+      "sha256": "63dfb50285e0b20e369963c49ce324ae38d5f0152337a7f7ad7ea66b914f8344",
+      "md5": "77397f0ffeb2dae22e56fda30b1f36aa"
     },
     "tools": {
       "planetiler": {

@@ -4,7 +4,11 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { sha256Text } from '../../../src/build/fs.mjs';
-import { promoteSource, rollbackSource } from '../../../src/deploy/promote.mjs';
+import {
+  promoteSource,
+  rollbackSource,
+  verifyPromotedSource,
+} from '../../../src/deploy/promote.mjs';
 import { createTempDirectory, removeTempDirectory } from '../../helpers/temp.mjs';
 
 const created = [];
@@ -545,6 +549,92 @@ describe('promoteSource', () => {
       'current archive',
     );
     expect(await exists(path.join(target.incomingSourceDir, 'current.pmtiles'))).toBe(true);
+  });
+});
+
+describe('verifyPromotedSource', () => {
+  const buildId = 'fixture-abcdef123456';
+  const readyResponse = () => ({ status: 200, json: async () => ({ status: 'ready' }) });
+  const sourcesResponse = () => ({
+    status: 200,
+    json: async () => ({ sources: [{ name: 'pois', available: true, buildId }] }),
+  });
+
+  it('retries when the first fetch rejects and succeeds once the server accepts requests', async () => {
+    let readyAttempts = 0;
+    const fetchImpl = vi.fn(async (url) => {
+      if (url.endsWith('/ready')) {
+        readyAttempts += 1;
+
+        if (readyAttempts === 1) {
+          throw new TypeError('fetch failed');
+        }
+
+        return readyResponse();
+      }
+
+      return sourcesResponse();
+    });
+
+    const entry = await verifyPromotedSource({
+      fetchImpl,
+      healthUrl: 'http://127.0.0.1:11010',
+      source: 'pois',
+      buildId,
+      sleep: async () => {},
+    });
+
+    expect(entry).toEqual({ name: 'pois', available: true, buildId });
+    expect(readyAttempts).toBe(2);
+  });
+
+  it('retries a transient 503 from /ready before succeeding', async () => {
+    let readyAttempts = 0;
+    const fetchImpl = vi.fn(async (url) => {
+      if (url.endsWith('/ready')) {
+        readyAttempts += 1;
+
+        return readyAttempts === 1 ? { status: 503, json: async () => ({}) } : readyResponse();
+      }
+
+      return sourcesResponse();
+    });
+
+    const entry = await verifyPromotedSource({
+      fetchImpl,
+      healthUrl: 'http://127.0.0.1:11010',
+      source: 'pois',
+      buildId,
+      sleep: async () => {},
+    });
+
+    expect(entry.buildId).toBe(buildId);
+    expect(readyAttempts).toBe(2);
+  });
+
+  it('fails after the deadline when the server never answers', async () => {
+    let clock = 0;
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
+    const sleep = vi.fn(async (delayMs) => {
+      clock += delayMs;
+    });
+
+    await expect(
+      verifyPromotedSource({
+        fetchImpl,
+        healthUrl: 'http://127.0.0.1:11010',
+        source: 'pois',
+        buildId,
+        timeoutMs: 1_000,
+        retryDelayMs: 250,
+        sleep,
+        now: () => clock,
+      }),
+    ).rejects.toThrow(/did not become healthy within 1000ms.*fetch failed/);
+
+    expect(sleep).toHaveBeenCalledTimes(4);
   });
 });
 

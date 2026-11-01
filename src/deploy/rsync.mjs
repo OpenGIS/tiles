@@ -15,7 +15,7 @@ export const MODEL_EXCLUDES = [
   '--exclude=/test/',
   '--exclude=/tmp/',
   '--exclude=/dist/',
-  '--exclude=/.env',
+  '--exclude=.env*',
   '--exclude=/.opencode/',
 ];
 

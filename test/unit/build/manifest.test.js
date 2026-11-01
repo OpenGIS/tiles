@@ -10,6 +10,7 @@ import {
 } from '../../../src/build/manifest.mjs';
 
 const SHA = 'a'.repeat(64);
+const MD5 = 'b'.repeat(32);
 
 function makeInput() {
   return {
@@ -23,6 +24,7 @@ function makeInput() {
       date: '2026-10-29',
       url: 'https://example.com/bc.osm.pbf',
       sha256: SHA,
+      md5: MD5,
     },
     fixture: {
       path: 'test/fixtures/alberta-canmore.osm.pbf',
@@ -98,7 +100,7 @@ describe('createBuildManifest', () => {
       mode: 'fixture',
       minzoom: 0,
       maxzoom: 16,
-      planet: { date: '2026-10-29', sha256: SHA },
+      planet: { date: '2026-10-29', sha256: SHA, md5: MD5 },
       tools: {
         planetiler: { version: '0.10.2', sha256: SHA },
         pmtiles: {
@@ -148,6 +150,20 @@ describe('createBuildManifest', () => {
     });
   });
 
+  it('records the verified planet MD5 alongside the actual SHA-256', () => {
+    const manifest = createBuildManifest(makeInput());
+
+    expect(manifest.planet.md5).toBe(MD5);
+    expect(manifest.planet.sha256).toBe(SHA);
+  });
+
+  it('accepts an older manifest without planet.md5', () => {
+    const manifest = createBuildManifest(makeInput());
+    delete manifest.planet.md5;
+
+    expect(() => validateBuildManifest(manifest)).not.toThrow();
+  });
+
   it('serialises without losing required fields', () => {
     const manifest = createBuildManifest(makeInput());
     const roundTripped = JSON.parse(JSON.stringify(manifest));
@@ -189,6 +205,7 @@ describe('validateBuildManifest', () => {
     ['a missing planet', (manifest) => delete manifest.planet],
     ['an impossible planet date', (manifest) => (manifest.planet.date = '2026-02-31')],
     ['a non-string planet date', (manifest) => (manifest.planet.date = 20261029)],
+    ['an invalid planet MD5', (manifest) => (manifest.planet.md5 = 'abc')],
     [
       'a blank planet date for a planet build',
       (manifest) => {

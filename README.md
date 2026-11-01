@@ -7,14 +7,26 @@ Small, API-only tile server for OpenStreetMap-derived outdoor layers, with on-de
 
 ## Status
 
-Phases 1–4 are implemented: a PMTiles serving core, a local Vite and MapLibre harness, on-demand
-contours, and the local build pipeline. The server serves `pois`, `routes` and `paths` from PMTiles
-archives and generates `contours` from a worldwide elevation model. `bin/ogis.mjs build` turns an OSM
-PBF into verified, content-addressed archives for the three PMTiles sources, in fixture or planet
-mode.
+Phases 1–6 are complete. The PMTiles serving core, Vite and MapLibre harness, on-demand contours,
+local build pipeline, Phase 5 operations and the Phase 6 production planet run are in place. The live
+service at <https://tile.ogis.app> runs on a Hetzner CX23 in `nbg1` with Ubuntu 26.04, systemd
+(`ogis-tiles.service`) and nginx with TLS from certbot. Data lives under `/opt/ogis-tiles/data`.
 
-Provisioning (Phase 5), the production planet run (Phase 6) and hardening (Phase 7) remain pending.
-The server is API-only; the harness is a development tool, not a production frontend.
+The server serves planet archives for `pois`, `routes` and `paths` built from the pinned 2026-10-26
+OpenStreetMap snapshot, plus on-demand `contours`. `config/layers.json` pins the dated snapshot URL,
+date, SHA-256 and MD5. The archives were built on a disposable CPX62 build box, transferred to the
+live server, verified against their build manifests and promoted one source at a time; the previous
+pairs remain available for rollback. Phase 5 added the `provision`, `deploy`, `status`, `promote` and
+`rollback` commands to `bin/ogis.mjs`, and disposable remote build boxes through
+`bin/ogis.mjs build --remote`. Planet builds accept a SHA-256 or MD5 checksum pin; the build manifest
+records the verified MD5 pin, when supplied, beside the actual SHA-256. Phase 7 hardening is next. The
+server is API-only; the harness is a development tool, not a production frontend.
+
+### Operations
+
+The live service is operated from a checkout with a filled `.env`. See
+[docs/6.operations.md](docs/6.operations.md) for the runbook and
+[docs/7.roadmap.md](docs/7.roadmap.md) for phase status and Phase 7 hardening.
 
 ## Quick start
 
@@ -50,8 +62,16 @@ Canmore–Banff basemap and a four-source panel for `pois`, `routes`, `paths` an
 ## Build pipeline
 
 `bin/ogis.mjs build` (also `npm run build:tiles`) builds the `pois`, `routes` and `paths` archives
-from an OSM PBF. Fixture mode is the local and test path; planet mode uses a pinned planet PBF, date
-and SHA-256.
+from an OSM PBF. Fixture mode is the local and test path; planet mode requires a pinned planet PBF,
+a planet date and at least one checksum. Pin SHA-256 with `PLANET_SHA256`, `--planet-sha256` or
+`build.planet.sha256` (preferred), or MD5 with `PLANET_MD5`, `--planet-md5` or `build.planet.md5`.
+Flags win over the environment, which wins over `config/layers.json`. Both are verified when both are
+supplied. A build pinned only by MD5 computes the PBF's SHA-256 for the manifest, which records
+`planet.md5` (the verified pin) alongside `planet.sha256` (the actual digest).
+
+Fixture builds use the adjacent fixture manifest checksum when present; an explicit `--planet-sha256`
+can override it. Ambient planet pins do not affect fixture checksums, and MD5 pins apply only to
+planet inputs.
 
 ```sh
 npm run build:tiles -- --fixture=test/fixtures/alberta-canmore.osm.pbf
@@ -67,32 +87,37 @@ rules and the Alberta Canmore fixture are in [docs/5.pipelines.md](docs/5.pipeli
 
 ### Remote builds
 
-`--remote` builds on a disposable Hetzner Cloud box and transfers each pair to the tile server's
-`data/incoming/` directory. Use `--dry-run` to inspect the plan; creating a box needs `--yes` because
-the box is billable while it exists. The default `cpx62` box has the 640 GB disk a filtered planet
-build needs, while the tile server remains a `cx23` that is upgraded manually to `cx33` when its data
-disk fills.
+`--remote` builds on a disposable Hetzner Cloud box and transfers each archive pair to the tile
+server's `data/incoming/` directory. It never promotes: run `bin/ogis.mjs promote --source=<name>`
+one source at a time afterwards. Use `--dry-run` to inspect the plan; creating a box needs `--yes`
+because the box is billable while it exists. The default `cpx62` box has the 640 GB disk a filtered
+planet build needs, while the tile server remains a `cx23` that is upgraded manually to `cx33` when
+its data disk fills.
 
 - `--keep-build-box` (or `--no-destroy`) leaves the box running after a successful build; delete it
   manually when finished.
 - `--no-transfer` builds and keeps the box because the only output would otherwise be destroyed.
-- A failure before the build starts destroys the box unless it is kept; a failure during the build
-  keeps the box and log for inspection.
+- A failure before the build starts destroys the box unless it is kept; a failure during or after
+  the build keeps the box and log for inspection.
 - Name-based cleanup only deletes a server labelled exactly `managed-by=ogis-tiles` and
   `role=build-box`.
 
-The preflight checks planet pins or the fixture, that `CONFIG_PATH`/`--fixture`/`--planet-pbf` exist
-locally, the destination disk, and the restricted build key before creating anything. `.env*` files
-are excluded from the sync at any depth. The local preflight needs rsync; rsync 3.2.3 or newer uses
-`--mkpath`, while macOS openrsync falls back to a write probe at the `rrsync` root without
-`--mkpath`. Install Homebrew rsync for the per-source probe.
+The preflight checks the planet pins or fixture, that `CONFIG_PATH`/`--fixture`/`--planet-pbf` exist
+locally, the destination disk, and the restricted build key before creating anything. For a planet
+build it requires a planet URL, a planet date and at least one of `PLANET_SHA256` or `PLANET_MD5`, and
+rejects `planet-latest`; the resolved pins, including `--planet-md5`, are forwarded to the box.
+`.env*` files are excluded from the sync at any depth. macOS openrsync 2.6.9 is supported: it runs
+with `--no-dirs`, which suppresses the forwarded `--dirs` that `rrsync` rejects, and probes at the
+`rrsync` root without `--mkpath`. A Homebrew rsync 3.2.3 or newer is preferred when installed; it
+probes the per-source directory with `--mkpath`. Homebrew rsync is optional.
 
 `TILE_DATA_DIR` and `TILE_INCOMING_DIR` must match the provisioned `/opt/ogis-tiles/data` and
 `/opt/ogis-tiles/data/incoming` paths because the build key is fixed to that `rrsync` root. Planet
 builds use `heapPlanet`, overridable with `PLANET_BUILD_HEAP`; empty values are not forwarded.
 `BUILD_DESTINATION_MIN_FREE_BYTES`, `BUILD_BOX_TIMEOUT_MS`, `BUILD_BOX_TRANSFER_TIMEOUT_MS` and
-`TILE_APP_DIR` tune the preflight and timeouts. After a multi-source build, promote one source at a
-time with `ogis promote --source=<name>`.
+`TILE_APP_DIR` tune the preflight and timeouts. The full lifecycle, failure handling and the
+transfer flags are in [docs/6.operations.md](docs/6.operations.md#remote-builds) and
+[docs/5.pipelines.md](docs/5.pipelines.md#remote-builds).
 
 ## Configuration
 
@@ -203,8 +228,11 @@ data/pois/
 - Archives are opened at startup, so replacing one requires a restart.
 
 Contour sources have no `data/` directory and no archive. `--install` in the build pipeline performs
-the swap: it writes the new pair, rotates a valid current pair to `previous`, and restores the old
-files if any step fails.
+the swap locally: it writes the new pair, rotates a valid current pair to `previous`, and restores
+the old files if any step fails. On the live server, `bin/ogis.mjs promote --source=<name>` installs
+a validated pair from `data/incoming/`, and `bin/ogis.mjs rollback --source=<name>` swaps the
+installed current and previous pairs. Both restart the service and wait for readiness before
+reporting success.
 
 ## Testing
 
@@ -235,13 +263,18 @@ errors, failed responses and external requests.
 ## Documentation
 
 - [Architecture](docs/2.architecture.md) — runtime shape, manifest, data layout, build pipeline
-  relationship, PMTiles reader, contour source, HTTP contract, security and limitations.
+  relationship, deployment topology, PMTiles reader, contour source, HTTP contract, security and
+  limitations.
 - [Dev harness](docs/3.dev-harness.md) — the offline Vite and MapLibre harness, vendored basemap,
   contour fixture, ports and browser smoke test.
 - [Contours](docs/4.contours.md) — generation flow, configuration, thresholds, caching, failure
   semantics and attribution.
-- [Build pipelines](docs/5.pipelines.md) — the `ogis build` command, stages, profiles, filter union,
-  output layout, install and rollback, verification and the Canmore fixture.
+- [Build pipelines](docs/5.pipelines.md) — the `ogis build` command, stages, planet pinning (SHA-256
+  and MD5), profiles, filter union, output layout, install and rollback, remote builds, verification
+  and the Canmore fixture.
+- [Operations](docs/6.operations.md) — status, deploy, promote and rollback, remote build lifecycle,
+  capacity, TLS and cache, credentials and incident runbook.
+- [Roadmap](docs/7.roadmap.md) — Phases 1–6 complete and Phase 7 hardening.
 - [Documentation index](docs/README.md) — reading order and planned pages.
 
 ## Data and licences

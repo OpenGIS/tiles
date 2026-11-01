@@ -32,9 +32,10 @@ profile.
   `data/<source>/` and rotates the current pair to `previous` for rollback.
 - Use `--only` for one source, `--output-dir` for scratch output, and `--skip-verify` only with a
   deliberate override of the install guard.
-- Planet mode requires a date and SHA-256 from flags, environment or `config/layers.json`; the
-  shipped planet values are placeholders until Phase 6. Fixture builds warn about a mismatched dev
-  pmtiles CLI; planet builds require the pinned `1.31.2`.
+- Planet mode requires a date and at least one checksum from flags, environment or
+  `config/layers.json`; SHA-256 is preferred, MD5 is accepted, and both are verified when both are
+  supplied. The shipped manifest pins the 2026-10-26 snapshot with both checksums. Fixture builds
+  warn about a mismatched dev pmtiles CLI; planet builds require the pinned `1.31.2`.
 - Full stages, profiles, flags and verification rules: [docs/5.pipelines.md](docs/5.pipelines.md).
 
 ## Testing

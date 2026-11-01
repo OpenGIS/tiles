@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -42,7 +43,7 @@ describe('downloadFile', () => {
       fetchImpl,
     });
 
-    expect(result).toEqual({ sha256: expectedSha256 });
+    expect(result).toBe(expectedSha256);
     expect(await readFile(destination, 'utf8')).toBe(contents);
     expect(await readdir(path.dirname(destination))).toEqual(['planetiler.jar']);
     expect(fetchImpl).toHaveBeenCalledWith('https://example.com/planetiler.jar', {
@@ -65,6 +66,71 @@ describe('downloadFile', () => {
     ).rejects.toThrow(/Checksum mismatch/);
 
     expect(await readdir(path.dirname(destination))).toEqual([]);
+  });
+
+  it('accepts a matching MD5 and still returns the SHA-256', async () => {
+    const root = await makeTemp();
+    const destination = path.join(root, 'planet.osm.pbf');
+    const contents = 'planet payload';
+    const expectedMd5 = createHash('md5').update(contents).digest('hex');
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(contents));
+
+    const result = await downloadFile({
+      url: 'https://example.com/planet.osm.pbf',
+      destination,
+      expectedMd5,
+      fetchImpl,
+    });
+
+    expect(result).toBe(sha256Text(contents));
+    expect(await readFile(destination, 'utf8')).toBe(contents);
+  });
+
+  it('rejects a mismatched MD5 and leaves a cached file untouched', async () => {
+    const root = await makeTemp();
+    const destination = path.join(root, 'planet.osm.pbf');
+    await writeFile(destination, 'cached planet', 'utf8');
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('corrupt'));
+
+    await expect(
+      downloadFile({
+        url: 'https://example.com/planet.osm.pbf',
+        destination,
+        expectedMd5: 'a'.repeat(32),
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/MD5 checksum mismatch/);
+
+    expect(await readFile(destination, 'utf8')).toBe('cached planet');
+    expect(await readdir(path.dirname(destination))).toEqual(['planet.osm.pbf']);
+  });
+
+  it('requires both digests to match when both are supplied', async () => {
+    const root = await makeTemp();
+    const contents = 'planet payload';
+    const expectedSha256 = sha256Text(contents);
+    const expectedMd5 = createHash('md5').update(contents).digest('hex');
+    const fetchImpl = vi.fn().mockImplementation(async () => new Response(contents));
+
+    await expect(
+      downloadFile({
+        url: 'https://example.com/planet.osm.pbf',
+        destination: path.join(root, 'sha-ok-md5-bad.osm.pbf'),
+        expectedSha256,
+        expectedMd5: 'b'.repeat(32),
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/MD5 checksum mismatch/);
+
+    await expect(
+      downloadFile({
+        url: 'https://example.com/planet.osm.pbf',
+        destination: path.join(root, 'sha-bad-md5-ok.osm.pbf'),
+        expectedSha256: 'a'.repeat(64),
+        expectedMd5,
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/Checksum mismatch/);
   });
 
   it('rejects a failed HTTP response without leaving a temporary file', async () => {
@@ -235,6 +301,56 @@ describe('tool detection', () => {
 
     await expect(detectPmtiles({ execFileImpl })).resolves.toEqual({
       version: '1.31.2',
+      sha256: sha256Text(contents),
+    });
+  });
+
+  it('extracts the semantic version from the pmtiles build stamp', async () => {
+    const root = await makeTemp();
+    const executable = path.join(root, 'pmtiles');
+    const contents = 'pmtiles executable';
+    await writeFile(executable, contents, 'utf8');
+    const execFileImpl = vi.fn(async (command) => {
+      if (command === 'pmtiles') {
+        return {
+          stdout:
+            'pmtiles 1.31.2, commit a3e4951ea6a0477b784c27c1dcbfd9c130878c5a, built at 2026-07-22T18:59:03Z\n',
+          stderr: '',
+        };
+      }
+
+      if (command === 'which') {
+        return { stdout: `${executable}\n`, stderr: '' };
+      }
+
+      throw new Error(`unexpected command: ${command}`);
+    });
+
+    await expect(detectPmtiles({ execFileImpl })).resolves.toEqual({
+      version: '1.31.2',
+      sha256: sha256Text(contents),
+    });
+  });
+
+  it('accepts a non-semver pmtiles build stamp', async () => {
+    const root = await makeTemp();
+    const executable = path.join(root, 'pmtiles');
+    const contents = 'pmtiles executable';
+    await writeFile(executable, contents, 'utf8');
+    const execFileImpl = vi.fn(async (command) => {
+      if (command === 'pmtiles') {
+        return { stdout: 'pmtiles dev, commit none, built at unknown\n', stderr: '' };
+      }
+
+      if (command === 'which') {
+        return { stdout: `${executable}\n`, stderr: '' };
+      }
+
+      throw new Error(`unexpected command: ${command}`);
+    });
+
+    await expect(detectPmtiles({ execFileImpl })).resolves.toEqual({
+      version: 'dev',
       sha256: sha256Text(contents),
     });
   });

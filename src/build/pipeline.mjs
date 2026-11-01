@@ -26,6 +26,7 @@ import {
   loadBuildConfig,
   normaliseOutputDir,
   normalisePlanetDate,
+  normalisePlanetMd5,
   normalisePlanetSha256,
   normalisePlanetUrl,
   resolveSizeFloor,
@@ -33,7 +34,7 @@ import {
 import { normaliseCalendarDate } from './dates.mjs';
 import { BuildError, BuildConfigError } from './errors.mjs';
 import { runCommand } from './exec.mjs';
-import { fileSize, pathExists, removePath, sha256File, sha256Text } from './fs.mjs';
+import { fileSize, md5File, pathExists, removePath, sha256File, sha256Text } from './fs.mjs';
 import { repairHeader, serialiseHeader } from './header.mjs';
 import { renderExpressionsFile, sourceExpressionUnion } from './expressions.mjs';
 import { installArchives } from './install.mjs';
@@ -82,7 +83,7 @@ function relativePath(repoRoot, target) {
 }
 
 function firstValue(...values) {
-  return values.find((value) => typeof value === 'string' && value.trim() !== '') ?? '';
+  return values.find((value) => typeof value === 'string' && value.trim() !== '')?.trim() ?? '';
 }
 
 function validatePathOption(value, label) {
@@ -133,6 +134,11 @@ function validateRunOptions({ options, env }) {
   const sha256 = firstValue(options.planetSha256, env.PLANET_SHA256);
   if (sha256 !== '') {
     normalisePlanetSha256(sha256, 'Planet SHA-256');
+  }
+
+  const md5 = firstValue(options.planetMd5, env.PLANET_MD5);
+  if (md5 !== '') {
+    normalisePlanetMd5(md5, 'Planet MD5');
   }
 
   const date = firstValue(options.planetDate, env.PLANET_DATE);
@@ -196,7 +202,9 @@ async function resolvePlanetInput({ repoRoot, options, config, env, force, fetch
 
     const { manifestPath, manifest } = await readFixtureManifest(pbfPath);
     const actualSha256 = await sha256File(pbfPath);
-    const expected = firstValue(options.planetSha256, env.PLANET_SHA256, manifest?.sha256);
+    // Fixture builds use the adjacent fixture manifest checksum. Ambient planet pins belong to
+    // planet runs; an explicit --planet-sha256 can still override the fixture checksum.
+    const expected = firstValue(options.planetSha256, manifest?.sha256);
 
     if (expected !== '' && expected !== actualSha256) {
       throw new BuildError(
@@ -223,10 +231,12 @@ async function resolvePlanetInput({ repoRoot, options, config, env, force, fetch
     env.PLANET_SHA256,
     config.build.planet.sha256,
   );
+  const providedMd5 = firstValue(options.planetMd5, env.PLANET_MD5, config.build.planet.md5);
 
-  if (providedSha === '') {
+  if (providedSha === '' && providedMd5 === '') {
     throw new BuildConfigError(
-      'A pinned planet SHA-256 is required; set build.planet.sha256, PLANET_SHA256 or --planet-sha256',
+      'A pinned planet checksum is required; set build.planet.sha256 or build.planet.md5, ' +
+        'PLANET_SHA256 or PLANET_MD5, or --planet-sha256 or --planet-md5',
     );
   }
 
@@ -237,10 +247,19 @@ async function resolvePlanetInput({ repoRoot, options, config, env, force, fetch
     }
 
     const actualSha256 = await sha256File(pbfPath);
-    if (actualSha256 !== providedSha) {
+    if (providedSha !== '' && actualSha256 !== providedSha) {
       throw new BuildError(
         `Planet PBF checksum mismatch for ${relativePath(repoRoot, pbfPath)}: expected ${providedSha}, received ${actualSha256}`,
       );
+    }
+
+    if (providedMd5 !== '') {
+      const actualMd5 = await md5File(pbfPath);
+      if (actualMd5 !== providedMd5) {
+        throw new BuildError(
+          `Planet PBF MD5 checksum mismatch for ${relativePath(repoRoot, pbfPath)}: expected ${providedMd5}, received ${actualMd5}`,
+        );
+      }
     }
 
     return {
@@ -248,6 +267,7 @@ async function resolvePlanetInput({ repoRoot, options, config, env, force, fetch
       pbfPath,
       url: url || '',
       sha256: actualSha256,
+      md5: providedMd5,
       fixture: null,
     };
   }
@@ -275,16 +295,26 @@ async function resolvePlanetInput({ repoRoot, options, config, env, force, fetch
         url,
         destination: pbfPath,
         expectedSha256: providedSha,
+        expectedMd5: providedMd5,
         fetchImpl,
       });
     }
   }
 
   const actualSha256 = await sha256File(pbfPath);
-  if (actualSha256 !== providedSha) {
+  if (providedSha !== '' && actualSha256 !== providedSha) {
     throw new BuildError(
       `Planet PBF checksum mismatch at ${relativePath(repoRoot, pbfPath)}: expected ${providedSha}, received ${actualSha256}; the cached file is stale or corrupt${force ? '' : ' (use --force to download it again)'}`,
     );
+  }
+
+  if (providedMd5 !== '') {
+    const actualMd5 = await md5File(pbfPath);
+    if (actualMd5 !== providedMd5) {
+      throw new BuildError(
+        `Planet PBF MD5 checksum mismatch at ${relativePath(repoRoot, pbfPath)}: expected ${providedMd5}, received ${actualMd5}; the cached file is stale or corrupt${force ? '' : ' (use --force to download it again)'}`,
+      );
+    }
   }
 
   return {
@@ -292,6 +322,7 @@ async function resolvePlanetInput({ repoRoot, options, config, env, force, fetch
     pbfPath,
     url,
     sha256: actualSha256,
+    md5: providedMd5,
     fixture: null,
   };
 }
@@ -579,6 +610,7 @@ async function buildFromArchive({
       date: planetDate,
       url: existingManifest?.planet?.url ?? '',
       sha256: existingManifest?.planet?.sha256 ?? '',
+      md5: existingManifest?.planet?.md5 ?? '',
     },
     fixture,
     tools: {
@@ -892,6 +924,7 @@ async function buildSource({
         date: planetDate,
         url: planet.url,
         sha256: planet.sha256,
+        md5: planet.md5,
       },
       fixture: fixtureRecord(repoRoot, planet),
       tools: {
@@ -1009,6 +1042,7 @@ export async function runBuild({
   planetUrl,
   planetDate,
   planetSha256,
+  planetMd5,
   skipDownload = false,
   skipFilter = false,
   skipBuild = false,
@@ -1038,6 +1072,7 @@ export async function runBuild({
     planetUrl,
     planetDate,
     planetSha256,
+    planetMd5,
     skipDownload,
     skipFilter,
     skipBuild,

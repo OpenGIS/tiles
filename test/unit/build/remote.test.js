@@ -52,6 +52,7 @@ const DEPLOY_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOdeployKeyExample deplo
 const BUILD_KEY_MATERIAL =
   '-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-build-key\n-----END OPENSSH PRIVATE KEY-----\n';
 const SHA256 = 'a'.repeat(64);
+const MD5 = 'b'.repeat(32);
 
 const ENV = {
   HCLOUD_TOKEN: 'test-token',
@@ -178,7 +179,7 @@ function baseOptions(overrides = {}) {
 
 function makeConfig() {
   return {
-    build: { planet: { url: '', date: '', sha256: '' } },
+    build: { planet: { url: '', date: '', sha256: '', md5: '' } },
     sources: { pois: { profile: 'pois' } },
   };
 }
@@ -191,6 +192,7 @@ async function run({
   fsImpl,
   out: outImpl,
   err: errImpl,
+  configPath = 'config/layers.json',
 } = {}) {
   const out = outImpl ?? { write: vi.fn() };
   const err = errImpl ?? { write: vi.fn() };
@@ -209,7 +211,7 @@ async function run({
     });
   const result = await runRemoteBuild({
     repoRoot,
-    configPath: 'config/layers.json',
+    configPath,
     options,
     env,
     client,
@@ -242,6 +244,7 @@ describe('build CLI', () => {
     expect(stdout).toContain('--remote');
     expect(stdout).toContain('--keep-build-box');
     expect(stdout).toContain('--build-server-type');
+    expect(stdout).toContain('--planet-md5');
   });
 
   it('rejects empty value flags before remote-only checks', async () => {
@@ -254,6 +257,7 @@ describe('build CLI', () => {
       '--build-name=',
       '--archive=',
       '--planet-url=',
+      '--planet-md5=',
       '--output-dir=',
     ]) {
       await expect(
@@ -292,6 +296,7 @@ describe('remoteBuildCommand', () => {
         planetUrl: 'https://planet.example/osm.pbf',
         planetDate: '2026-01-02',
         planetSha256: SHA256,
+        planetMd5: MD5,
         skipDownload: true,
         force: false,
       },
@@ -301,6 +306,7 @@ describe('remoteBuildCommand', () => {
     expect(command).toContain("--planet-url='https://planet.example/osm.pbf'");
     expect(command).toContain("--planet-date='2026-01-02'");
     expect(command).toContain(`--planet-sha256='${SHA256}'`);
+    expect(command).toContain(`--planet-md5='${MD5}'`);
     expect(command).toContain('--skip-download');
     expect(command).not.toContain('--force');
   });
@@ -351,6 +357,9 @@ const RRSYNC_WRITE_ONLY_OPTIONS = new Set([
   '--delete',
   '--include',
   '--exclude',
+  '--no-perms',
+  '--omit-dir-times',
+  '--no-group',
 ]);
 
 function rsyncOptions(command) {
@@ -412,13 +421,40 @@ describe('transferSourceCommand', () => {
     expect(command).not.toContain('--delete-excluded');
   });
 
+  it('does not preserve permissions or directory times on the build box delete probe', () => {
+    const command = transferSourceCommand({
+      source: 'pois',
+      targetHost: 'tile.ogis.app',
+      keyPath: '/home/deploy/.ssh/ogis-tiles-build',
+    });
+    const deleteProbe = command.split('&&').find((segment) => segment.includes('--delete'));
+
+    expect(deleteProbe).toContain('--no-perms');
+    expect(deleteProbe).toContain('--omit-dir-times');
+  });
+
+  it('does not preserve the build box group on the final transfer', () => {
+    const command = transferSourceCommand({
+      source: 'pois',
+      targetHost: 'tile.ogis.app',
+      keyPath: '/home/deploy/.ssh/ogis-tiles-build',
+    });
+    const finalTransfer = command
+      .split('&&')
+      .find((segment) => segment.includes('--delay-updates'));
+
+    expect(finalTransfer).toContain('--no-group');
+  });
+
   it('clears the old incoming pair before the delayed final transfer', () => {
     const command = transferSourceCommand({
       source: 'pois',
       targetHost: 'tile.ogis.app',
       keyPath: '/home/deploy/.ssh/ogis-tiles-build',
     });
-    const clearIndex = command.indexOf("--archive --delete --include='/current.pmtiles'");
+    const clearIndex = command.indexOf(
+      "--no-perms --omit-dir-times --delete --include='/current.pmtiles'",
+    );
     const transferIndex = command.indexOf('--delay-updates');
 
     expect(clearIndex).toBeGreaterThan(-1);
@@ -646,17 +682,227 @@ describe('build-key preflight rsync compatibility', () => {
       supportsRsyncMkpath({ command: '/usr/bin/rsync', version: '3.2.2', openrsync: false }),
     ).toBe(false);
   });
+
+  it('passes --no-dirs to both openrsync preflight commands', async () => {
+    const execImpl = vi.fn(async (command, args) => {
+      if (args.includes('--version')) {
+        return {
+          stdout: 'openrsync: protocol version 29\nrsync version 2.6.9 compatible flags\n',
+          stderr: '',
+        };
+      }
+
+      return { stdout: '', stderr: '' };
+    });
+
+    const rsync = await detectRsync({ execImpl, candidates: ['/usr/bin/rsync'] });
+
+    await preflightBuildKey({
+      repoRoot,
+      targetHost: 'tile.ogis.app',
+      buildUser: 'build',
+      source: 'pois',
+      keyPath: '/keys/ogis_tiles_build',
+      execImpl,
+      env: {},
+      rsync,
+      err: makeWriter(),
+    });
+
+    const probeCalls = execImpl.mock.calls.filter(
+      ([command, args]) => command === '/usr/bin/rsync' && !args.includes('--version'),
+    );
+
+    expect(probeCalls).toHaveLength(2);
+    expect(probeCalls[0][1]).toContain('--no-dirs');
+    expect(probeCalls[1][1]).toContain('--no-dirs');
+  });
+
+  it('passes exactly --exclude=* to the delete probe', async () => {
+    const execImpl = vi.fn(async (command, args) => {
+      if (args.includes('--version')) {
+        return {
+          stdout: 'openrsync: protocol version 29\nrsync version 2.6.9 compatible flags\n',
+          stderr: '',
+        };
+      }
+
+      return { stdout: '', stderr: '' };
+    });
+
+    const rsync = await detectRsync({ execImpl, candidates: ['/usr/bin/rsync'] });
+
+    await preflightBuildKey({
+      repoRoot,
+      targetHost: 'tile.ogis.app',
+      buildUser: 'build',
+      source: 'pois',
+      keyPath: '/keys/ogis_tiles_build',
+      execImpl,
+      env: {},
+      rsync,
+      err: makeWriter(),
+    });
+
+    const probeCalls = execImpl.mock.calls.filter(
+      ([command, args]) => command === '/usr/bin/rsync' && !args.includes('--version'),
+    );
+    const deleteProbe = probeCalls[1][1];
+
+    expect(deleteProbe).toContain('--exclude=*');
+    expect(deleteProbe).not.toContain("--exclude='*'");
+    expect(deleteProbe.filter((argument) => argument.startsWith('--exclude='))).toEqual([
+      '--exclude=*',
+    ]);
+  });
+
+  it('passes --no-perms and --omit-dir-times to the local delete probe', async () => {
+    const execImpl = vi.fn(async (command, args) => {
+      if (args.includes('--version')) {
+        return {
+          stdout: 'openrsync: protocol version 29\nrsync version 2.6.9 compatible flags\n',
+          stderr: '',
+        };
+      }
+
+      return { stdout: '', stderr: '' };
+    });
+
+    const rsync = await detectRsync({ execImpl, candidates: ['/usr/bin/rsync'] });
+
+    await preflightBuildKey({
+      repoRoot,
+      targetHost: 'tile.ogis.app',
+      buildUser: 'build',
+      source: 'pois',
+      keyPath: '/keys/ogis_tiles_build',
+      execImpl,
+      env: {},
+      rsync,
+      err: makeWriter(),
+    });
+
+    const probeCalls = execImpl.mock.calls.filter(
+      ([command, args]) => command === '/usr/bin/rsync' && !args.includes('--version'),
+    );
+    const deleteProbe = probeCalls[1][1];
+
+    expect(deleteProbe).toContain('--no-perms');
+    expect(deleteProbe).toContain('--omit-dir-times');
+    expect(deleteProbe).toContain('--no-dirs');
+  });
+
+  it('does not pass --no-dirs to a compatible rsync', async () => {
+    const execImpl = vi.fn(async (command, args) => {
+      if (args.includes('--version')) {
+        return { stdout: 'rsync version 3.2.7 protocol version 31\n', stderr: '' };
+      }
+
+      return { stdout: '', stderr: '' };
+    });
+
+    const rsync = await detectRsync({ execImpl, candidates: ['/usr/bin/rsync'] });
+
+    expect(rsync).toMatchObject({ openrsync: false, compatible: true });
+
+    await preflightBuildKey({
+      repoRoot,
+      targetHost: 'tile.ogis.app',
+      buildUser: 'build',
+      source: 'pois',
+      keyPath: '/keys/ogis_tiles_build',
+      execImpl,
+      env: {},
+      rsync,
+      err: makeWriter(),
+    });
+
+    const probeCalls = execImpl.mock.calls.filter(
+      ([command, args]) => command === '/usr/bin/rsync' && !args.includes('--version'),
+    );
+
+    expect(probeCalls).toHaveLength(2);
+    expect(probeCalls[0][1]).not.toContain('--no-dirs');
+    expect(probeCalls[1][1]).not.toContain('--no-dirs');
+  });
+
+  it('deletes only the marker from a local dry-run destination', async (context) => {
+    let rsync;
+
+    try {
+      rsync = await detectRsync({ candidates: ['/usr/bin/rsync', 'rsync'] });
+    } catch {
+      context.skip();
+      return;
+    }
+
+    const probeRoot = path.join(repoRoot, '.opencode', 'tmp');
+    await mkdir(probeRoot, { recursive: true });
+    const directory = await mkdtemp(path.join(probeRoot, 'rsync-delete-probe-'));
+
+    try {
+      const source = path.join(directory, 'source');
+      const destination = path.join(directory, 'destination');
+      await mkdir(source, { recursive: true });
+      await mkdir(destination, { recursive: true });
+      await writeFile(path.join(destination, '.ogis-preflight-probe'), '');
+      await writeFile(path.join(destination, 'keep-a.txt'), 'keep');
+      await writeFile(path.join(destination, 'keep-b.txt'), 'keep');
+
+      const args = ['--archive'];
+
+      if (rsync.openrsync) {
+        args.push('--no-dirs');
+      }
+
+      args.push(
+        '--delete',
+        '--include=/.ogis-preflight-probe',
+        '--exclude=*',
+        `${source}/`,
+        `${destination}/`,
+      );
+
+      await runCli(rsync.command, args);
+
+      await expect(stat(path.join(destination, '.ogis-preflight-probe'))).rejects.toThrow();
+      await expect(readFile(path.join(destination, 'keep-a.txt'), 'utf8')).resolves.toBe('keep');
+      await expect(readFile(path.join(destination, 'keep-b.txt'), 'utf8')).resolves.toBe('keep');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('planet pins', () => {
-  it('requires all three pins before any cloud call', () => {
+  it('requires a URL, date and at least one checksum before any cloud call', () => {
     expect(() =>
       resolveRemotePlanetPin({
         options: {},
         env: {},
-        config: { build: { planet: { url: '', date: '', sha256: '' } } },
+        config: { build: { planet: { url: '', date: '', sha256: '', md5: '' } } },
       }),
-    ).toThrow(/PLANET_URL, PLANET_DATE and PLANET_SHA256.*missing PLANET_URL/);
+    ).toThrow(/PLANET_URL, PLANET_DATE.*PLANET_SHA256 or PLANET_MD5.*missing PLANET_URL/);
+  });
+
+  it('rejects a pin set with no checksum', () => {
+    expect(() =>
+      resolveRemotePlanetPin({
+        options: {},
+        env: { PLANET_URL: PLANET_ENV.PLANET_URL, PLANET_DATE: PLANET_ENV.PLANET_DATE },
+        config: makeConfig(),
+      }),
+    ).toThrow(/missing a checksum pin \(PLANET_SHA256 or PLANET_MD5\)/);
+  });
+
+  it('rejects an invalid MD5 pin', () => {
+    expect(() =>
+      resolveRemotePlanetPin({
+        options: {},
+        env: { ...PLANET_ENV, PLANET_MD5: 'A'.repeat(32) },
+        config: makeConfig(),
+      }),
+    ).toThrow(/Planet MD5 must be a lowercase 32 character/);
   });
 
   it('rejects a planet-latest URL even when a date and checksum are present', () => {
@@ -673,11 +919,12 @@ describe('planet pins', () => {
               url: 'https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf',
               date: '2026-10-29',
               sha256: SHA256,
+              md5: '',
             },
           },
         },
       }),
-    ).toThrow(/planet-latest/);
+    ).toThrow(/planet-latest.*SHA-256 or MD5/);
   });
 
   it('accepts a complete dated pin set', () => {
@@ -685,6 +932,22 @@ describe('planet pins', () => {
       url: PLANET_ENV.PLANET_URL,
       date: PLANET_ENV.PLANET_DATE,
       sha256: PLANET_ENV.PLANET_SHA256,
+      md5: '',
+    });
+  });
+
+  it('accepts an MD5-only pin set', () => {
+    expect(
+      resolveRemotePlanetPin({
+        options: {},
+        env: { ...PLANET_ENV, PLANET_SHA256: '', PLANET_MD5: MD5 },
+        config: makeConfig(),
+      }),
+    ).toEqual({
+      url: PLANET_ENV.PLANET_URL,
+      date: PLANET_ENV.PLANET_DATE,
+      sha256: '',
+      md5: MD5,
     });
   });
 });
@@ -702,6 +965,37 @@ describe('selectBuildSources', () => {
 });
 
 describe('BUILD_BOX_READY_COMMAND', () => {
+  it('tolerates the healthy cloud-init exit 2 caused by vendor deprecation warnings', () => {
+    expect(BUILD_BOX_READY_COMMAND.startsWith('cloud-init status --wait || test $? -eq 2')).toBe(
+      true,
+    );
+  });
+
+  it('still checks all five pinned binaries', () => {
+    for (const check of [
+      '/usr/local/bin/node --version',
+      '/usr/local/bin/pmtiles version',
+      'java -version',
+      'osmium --version',
+      'rsync --version',
+    ]) {
+      expect(BUILD_BOX_READY_COMMAND).toContain(check);
+    }
+  });
+
+  it('uses && chaining so a failed tool check still fails the readiness check', () => {
+    const segments = BUILD_BOX_READY_COMMAND.split(' && ');
+    expect(segments.length).toBeGreaterThan(1);
+    expect(segments[0]).toBe('cloud-init status --wait || test $? -eq 2');
+    expect(segments.slice(1)).toEqual([
+      '/usr/local/bin/node --version',
+      '/usr/local/bin/pmtiles version',
+      'java -version',
+      'osmium --version',
+      'rsync --version',
+    ]);
+  });
+
   it('uses the pmtiles subcommand accepted by the pinned 1.31.2 binary', () => {
     expect(BUILD_BOX_READY_COMMAND).toContain('/usr/local/bin/pmtiles version');
     expect(BUILD_BOX_READY_COMMAND).not.toContain('/usr/local/bin/pmtiles --version');
@@ -1490,8 +1784,42 @@ describe('runRemoteBuild', () => {
 
     expect(buildCommand).toContain("--fixture='test/fixtures/alberta-canmore.osm.pbf'");
     expect(buildCommand).not.toContain('--planet-sha256');
+    expect(buildCommand).not.toContain('--planet-md5');
     expect(buildCommand).not.toContain('--planet-url');
     expect(buildCommand).not.toContain('--planet-date');
+  });
+
+  it('forwards a PLANET_MD5 environment fallback into the remote build', async () => {
+    const execImpl = vi.fn(async (command, args) => {
+      if (command === 'ssh' && args.at(-1).includes('df -B1 --output=size,avail')) {
+        return destinationDiskResponse();
+      }
+
+      if (command === 'ssh' && args.at(-1).includes('df -B1')) {
+        return diskResponse();
+      }
+
+      return { stdout: '', stderr: '' };
+    });
+
+    const { exec } = await run({
+      execImpl,
+      options: baseOptions({ fixture: undefined }),
+      configPath: 'test/fixtures/build-layers-empty-planet.json',
+      env: {
+        ...ENV,
+        PLANET_URL: 'https://planet.example/osm.pbf',
+        PLANET_DATE: '2026-01-02',
+        PLANET_MD5: MD5,
+      },
+    });
+
+    const buildCommand = sshCommands(exec).find((command) =>
+      command.includes('bin/ogis.mjs build'),
+    );
+
+    expect(buildCommand).toContain(`--planet-md5='${MD5}'`);
+    expect(buildCommand).not.toContain('--planet-sha256');
   });
 
   it('forwards a non-empty PLANET_BUILD_HEAP into the remote build', async () => {
@@ -1704,9 +2032,13 @@ describe('runRemoteBuild', () => {
   it('rejects missing planet pins before creating the build box', async () => {
     const client = fakeClient();
 
-    await expect(run({ client, options: baseOptions({ fixture: undefined }) })).rejects.toThrow(
-      /PLANET_URL, PLANET_DATE and PLANET_SHA256/,
-    );
+    await expect(
+      run({
+        client,
+        options: baseOptions({ fixture: undefined }),
+        configPath: 'test/fixtures/build-layers-empty-planet.json',
+      }),
+    ).rejects.toThrow(/PLANET_URL, PLANET_DATE.*PLANET_SHA256 or PLANET_MD5/);
 
     expect(client.createServer).not.toHaveBeenCalled();
     expect(client.findImageByName).not.toHaveBeenCalled();
@@ -1726,7 +2058,7 @@ describe('runRemoteBuild', () => {
           PLANET_URL: 'https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf',
         },
       }),
-    ).rejects.toThrow(/planet-latest/);
+    ).rejects.toThrow(/planet-latest.*SHA-256 or MD5/);
 
     expect(client.createServer).not.toHaveBeenCalled();
   });
@@ -1739,6 +2071,7 @@ describe('runRemoteBuild', () => {
       ['planetUrl', ''],
       ['planetDate', ''],
       ['planetSha256', ' '],
+      ['planetMd5', ' '],
       ['outputDir', ''],
       ['buildServerType', ''],
       ['buildLocation', ' '],

@@ -103,6 +103,10 @@ function assertNoIncomingOverlap({ dataRoot, incomingRoot, sourceDir, incomingSo
   }
 }
 
+const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_RETRY_DELAY_MS = 250;
+
 async function requestJson({ fetchImpl, url, label, timeoutMs }) {
   let response;
 
@@ -128,21 +132,76 @@ async function requestJson({ fetchImpl, url, label, timeoutMs }) {
   }
 }
 
+export async function waitForJson({
+  fetchImpl = globalThis.fetch,
+  url,
+  label,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  retryDelayMs = DEFAULT_RETRY_DELAY_MS,
+  sleep = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+  now = () => Date.now(),
+} = {}) {
+  const startedAt = now();
+  const deadline = startedAt + timeoutMs;
+  let lastError = null;
+
+  for (;;) {
+    const remaining = deadline - now();
+    if (remaining <= 0) {
+      break;
+    }
+
+    const attemptTimeoutMs = Math.max(1, Math.min(requestTimeoutMs, remaining));
+
+    try {
+      return await requestJson({ fetchImpl, url, label, timeoutMs: attemptTimeoutMs });
+    } catch (error) {
+      lastError = error;
+    }
+
+    const remainingAfterAttempt = deadline - now();
+    if (remainingAfterAttempt <= 0) {
+      break;
+    }
+
+    await sleep(Math.min(retryDelayMs, remainingAfterAttempt));
+  }
+
+  const elapsed = Math.max(0, now() - startedAt);
+  throw new DeployError(
+    `${label} ${url} did not become healthy within ${elapsed}ms: ${lastError?.message ?? 'no response'}`,
+    { cause: lastError ?? undefined },
+  );
+}
+
 export async function verifyPromotedSource({
   fetchImpl = globalThis.fetch,
   healthUrl,
   source,
   buildId,
-  timeoutMs = 5_000,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+  requestTimeoutMs,
+  retryDelayMs,
+  sleep,
+  now,
   label = 'Promoted source',
 } = {}) {
-  await requestJson({ fetchImpl, url: `${healthUrl}/ready`, label: 'Ready check', timeoutMs });
-
-  const payload = await requestJson({
+  const waitOptions = {
     fetchImpl,
+    timeoutMs,
+    requestTimeoutMs,
+    retryDelayMs,
+    sleep,
+    now,
+  };
+
+  await waitForJson({ ...waitOptions, url: `${healthUrl}/ready`, label: 'Ready check' });
+
+  const payload = await waitForJson({
+    ...waitOptions,
     url: `${healthUrl}/sources`,
     label: 'Sources check',
-    timeoutMs,
   });
   const entry = Array.isArray(payload?.sources)
     ? payload.sources.find((candidate) => candidate?.name === source)
@@ -398,7 +457,7 @@ export async function promoteSource({
   smoke = async () => {},
   fetchImpl = globalThis.fetch,
   healthUrl = null,
-  healthTimeoutMs = 5_000,
+  healthTimeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
   dryRun = false,
   err = process.stderr,
 } = {}) {
@@ -491,7 +550,7 @@ export async function rollbackSource({
   smoke = async () => {},
   fetchImpl = globalThis.fetch,
   healthUrl = null,
-  healthTimeoutMs = 5_000,
+  healthTimeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
   dryRun = false,
   err = process.stderr,
 } = {}) {
