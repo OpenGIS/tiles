@@ -7,9 +7,10 @@ Small, API-only tile server for OpenStreetMap-derived outdoor layers, with on-de
 
 ## Status
 
-Phases 1–6 are complete. The PMTiles serving core, Vite and MapLibre harness, on-demand contours,
-local build pipeline, Phase 5 operations and the Phase 6 production planet run are in place. The live
-service at <https://tile.ogis.app> runs on a Hetzner CX23 in `nbg1` with Ubuntu 26.04, systemd
+Phases 1–6 are complete and Phase 7 is in progress. The PMTiles serving core, Vite and MapLibre
+harness, on-demand contours, local build pipeline, Phase 5 operations and the Phase 6 production
+planet run are complete, and the Phase 7 edge-protection slice is implemented. The live service at
+<https://tile.ogis.app> runs on a Hetzner CX23 in `nbg1` with Ubuntu 26.04, systemd
 (`ogis-tiles.service`) and nginx with TLS from certbot. Data lives under `/opt/ogis-tiles/data`.
 
 The server serves planet archives for `pois`, `routes` and `paths` built from the pinned 2026-10-26
@@ -19,14 +20,36 @@ live server, verified against their build manifests and promoted one source at a
 pairs remain available for rollback. Phase 5 added the `provision`, `deploy`, `status`, `promote` and
 `rollback` commands to `bin/ogis.mjs`, and disposable remote build boxes through
 `bin/ogis.mjs build --remote`. Planet builds accept a SHA-256 or MD5 checksum pin; the build manifest
-records the verified MD5 pin, when supplied, beside the actual SHA-256. Phase 7 hardening is next. The
-server is API-only; the harness is a development tool, not a production frontend.
+records the verified MD5 pin, when supplied, beside the actual SHA-256. Phase 7 is in progress:
+per-IP edge protection and access logging are implemented, with deployment still to follow;
+monitoring, automation and the other hardening items remain. The server is API-only; the harness is
+a development tool, not a production frontend.
 
 ### Operations
 
 The live service is operated from a checkout with a filled `.env`. See
-[docs/6.operations.md](docs/6.operations.md) for the runbook and
-[docs/7.roadmap.md](docs/7.roadmap.md) for phase status and Phase 7 hardening.
+[docs/6.operations.md](docs/6.operations.md) for the runbook, including edge limits and access logs,
+and [docs/7.roadmap.md](docs/7.roadmap.md) for phase status and the remaining hardening.
+
+### Edge protection
+
+Once deployed, nginx applies per-IP limits to the site. PMTiles tile routes allow `100 r/s`, burst
+`200` and `40` concurrent connections per IP; contour tile routes allow `10 r/s`, burst `40` and `8`
+concurrent connections. Excess requests receive `429` with `Retry-After: 1`, which is distinct
+from the application's `503` `source_unavailable`, `upstream_unavailable` and not-ready responses.
+`/health`, `/ready`, `/sources`, `/` and every TileJSON `/<source>.json` route are unmetered. The
+same configuration also sets server-level body and timeout limits and writes a per-host `ogis`
+access log with status, `rt`, `urt` and `cache`.
+
+The values are exported `EDGE_LIMITS` constants in [`src/deploy/render.mjs`](src/deploy/render.mjs),
+not environment variables; changing them requires a code change and `ogis deploy`. Provisioning
+installs only the global body limit and timeouts, while the first deploy installs the per-route limits
+and access log. Deploy validates with `nginx -t` before reload and restores the previous site
+configuration on failure. To undo a limit change, revert it and redeploy. The limits key on
+`$binary_remote_addr`, so adding a CDN or reverse proxy later requires trusted real-IP handling;
+otherwise all clients share one bucket. See
+[docs/6.operations.md](docs/6.operations.md#edge-limits-and-throttling) for 429 handling, log fields,
+a controlled burst and safe tuning.
 
 ## Quick start
 
@@ -173,9 +196,10 @@ different manifest. Forwarded headers are ignored unless `server.trustProxy` is 
 | `GET`  | `/contours/<z>/<x>/<y>.pbf`           | On-demand contour tile.                      |
 
 `HEAD` and `OPTIONS` are supported on known routes. Unknown routes return 404; unsupported methods
-return 405; invalid coordinates, invalid build IDs and tile query strings return 400. `/health`
-always returns 200 and reports `degraded`; `/ready` returns 503 while a local source is unavailable
-and never probes the DEM provider.
+return 405; invalid coordinates, invalid build IDs and tile query strings return 400. Tile routes
+return 429 with `Retry-After: 1` when the per-IP nginx edge limit is exceeded. `/health` always
+returns 200 and reports `degraded`; `/ready` returns 503 while a local source is unavailable and never
+probes the DEM provider.
 
 Tiles are `application/x-protobuf`; empty tiles return 204. Gzip-stored tiles are returned as stored
 when accepted, otherwise decompressed to identity. ETags include the build ID and coordinates and end
@@ -263,8 +287,8 @@ errors, failed responses and external requests.
 ## Documentation
 
 - [Architecture](docs/2.architecture.md) — runtime shape, manifest, data layout, build pipeline
-  relationship, deployment topology, PMTiles reader, contour source, HTTP contract, security and
-  limitations.
+  relationship, deployment topology, edge protection, PMTiles reader, contour source, HTTP contract,
+  security and limitations.
 - [Dev harness](docs/3.dev-harness.md) — the offline Vite and MapLibre harness, vendored basemap,
   contour fixture, ports and browser smoke test.
 - [Contours](docs/4.contours.md) — generation flow, configuration, thresholds, caching, failure
@@ -273,8 +297,8 @@ errors, failed responses and external requests.
   and MD5), profiles, filter union, output layout, install and rollback, remote builds, verification
   and the Canmore fixture.
 - [Operations](docs/6.operations.md) — status, deploy, promote and rollback, remote build lifecycle,
-  capacity, TLS and cache, credentials and incident runbook.
-- [Roadmap](docs/7.roadmap.md) — Phases 1–6 complete and Phase 7 hardening.
+  edge limits and access logs, capacity, TLS and cache, credentials and incident runbook.
+- [Roadmap](docs/7.roadmap.md) — Phases 1–6 complete, Phase 7 in progress and remaining deferrals.
 - [Documentation index](docs/README.md) — reading order and planned pages.
 
 ## Data and licences

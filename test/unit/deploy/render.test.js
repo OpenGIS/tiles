@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_NGINX_CACHE_OWNER,
+  EDGE_LIMITS,
   nginxCacheDirectories,
   nginxCacheOwner,
   renderNginxConfig,
@@ -13,6 +14,20 @@ import { loadConfig } from '../../../src/lib/config.mjs';
 import { repoRoot } from '../../helpers/temp.mjs';
 
 const layers = loadConfig(path.join(repoRoot, 'config', 'layers.json'), { repoRoot });
+
+function nginxPrelude(config) {
+  return config.slice(0, config.indexOf('\nserver {'));
+}
+
+function nginxLocation(config, header) {
+  const lines = config.split('\n');
+  const start = lines.findIndex((line) => line.trim() === `${header} {`);
+  expect(start).toBeGreaterThanOrEqual(0);
+
+  const end = lines.findIndex((line, index) => index > start && line.trim() === '}');
+
+  return lines.slice(start, end + 1).join('\n');
+}
 
 describe('renderSystemdUnit', () => {
   it('renders a hardened production unit', () => {
@@ -262,5 +277,153 @@ describe('renderNginxConfig', () => {
         sources: { 'bad name': { kind: 'pmtiles' } },
       }),
     ).toThrow(/not safe for nginx/);
+  });
+});
+
+describe('renderNginxConfig edge protection', () => {
+  const render = ({ tls = true } = {}) =>
+    renderNginxConfig({
+      host: 'tile.ogis.app',
+      port: 11010,
+      sources: layers.sources,
+      tls,
+    });
+
+  it('exposes the edge limit values used by the renderer', () => {
+    expect(EDGE_LIMITS.tile).toMatchObject({
+      requestZone: 'ogis_tiles',
+      connectionZone: 'ogis_tile_conn',
+      rate: '100r/s',
+      burst: 200,
+      connections: 40,
+      readTimeout: '30s',
+    });
+    expect(EDGE_LIMITS.contour).toMatchObject({
+      requestZone: 'ogis_contours',
+      connectionZone: 'ogis_contour_conn',
+      rate: '10r/s',
+      burst: 40,
+      connections: 8,
+      readTimeout: '75s',
+    });
+    expect(EDGE_LIMITS.defaultReadTimeout).toBe('60s');
+    expect(EDGE_LIMITS.healthReadTimeout).toBe('10s');
+  });
+
+  it('renders the HTTP-context zones, map and log format before the server blocks', () => {
+    const prelude = nginxPrelude(render());
+
+    expect(prelude).toContain(
+      'limit_req_zone $binary_remote_addr zone=ogis_tiles:10m rate=100r/s;',
+    );
+    expect(prelude).toContain(
+      'limit_req_zone $binary_remote_addr zone=ogis_contours:10m rate=10r/s;',
+    );
+    expect(prelude).toContain('limit_conn_zone $binary_remote_addr zone=ogis_tile_conn:10m;');
+    expect(prelude).toContain('limit_conn_zone $binary_remote_addr zone=ogis_contour_conn:10m;');
+    expect(prelude).toContain('map $status $ogis_retry_after {');
+    expect(prelude).toContain('429 "1";');
+    expect(prelude).toContain('default "";');
+    expect(prelude).toContain(
+      'log_format ogis \'$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time urt=$upstream_response_time cache=$upstream_cache_status\';',
+    );
+  });
+
+  it('renders server-level body limits, timeouts, statuses and access log', () => {
+    const config = render();
+
+    for (const directive of [
+      'client_max_body_size 64k;',
+      'client_header_timeout 10s;',
+      'client_body_timeout 10s;',
+      'send_timeout 30s;',
+      'keepalive_timeout 30s;',
+      'limit_req_status 429;',
+      'limit_conn_status 429;',
+      'limit_req_log_level warn;',
+      'limit_conn_log_level warn;',
+      'access_log /var/log/nginx/tile.ogis.app.access.log ogis;',
+    ]) {
+      expect(config).toContain(directive);
+    }
+  });
+
+  it('meters PMTiles and contour tile locations', () => {
+    const config = render();
+
+    const pmtiles = nginxLocation(config, 'location /pois/');
+    expect(pmtiles).toContain('limit_req zone=ogis_tiles burst=200 nodelay;');
+    expect(pmtiles).toContain('limit_conn ogis_tile_conn 40;');
+    expect(pmtiles).toContain('proxy_read_timeout 30s;');
+    expect(pmtiles).toContain('add_header Retry-After $ogis_retry_after always;');
+
+    const contours = nginxLocation(config, 'location /contours/');
+    expect(contours).toContain('limit_req zone=ogis_contours burst=40 nodelay;');
+    expect(contours).toContain('limit_conn ogis_contour_conn 8;');
+    expect(contours).toContain('proxy_read_timeout 75s;');
+    expect(contours).toContain('add_header Retry-After $ogis_retry_after always;');
+  });
+
+  it('leaves health, ready, sources, index and TileJSON locations unmetered', () => {
+    const config = render();
+
+    for (const header of [
+      'location = /health',
+      'location = /ready',
+      'location = /sources',
+      'location = /',
+      'location = /pois.json',
+      'location = /contours.json',
+    ]) {
+      const block = nginxLocation(config, header);
+      expect(block).not.toContain('limit_req');
+      expect(block).not.toContain('limit_conn');
+    }
+  });
+
+  it('sets one read timeout per proxied location', () => {
+    const config = render();
+
+    for (const header of [
+      'location = /health',
+      'location = /ready',
+      'location = /sources',
+      'location = /',
+      'location = /pois.json',
+      'location /pois/',
+      'location = /contours.json',
+      'location /contours/',
+    ]) {
+      const block = nginxLocation(config, header);
+      expect(block.match(/proxy_read_timeout/g)).toHaveLength(1);
+    }
+
+    for (const header of ['location = /health', 'location = /ready']) {
+      expect(nginxLocation(config, header)).toContain('proxy_read_timeout 10s;');
+    }
+
+    for (const header of ['location = /sources', 'location = /', 'location = /pois.json']) {
+      expect(nginxLocation(config, header)).toContain('proxy_read_timeout 60s;');
+    }
+
+    expect(nginxLocation(config, 'location = /health')).toContain('proxy_connect_timeout 5s;');
+    expect(nginxLocation(config, 'location = /health')).toContain('proxy_send_timeout 30s;');
+  });
+
+  it('includes the edge controls in both TLS and HTTP-only renders', () => {
+    for (const tls of [true, false]) {
+      const config = render({ tls });
+      const prelude = nginxPrelude(config);
+
+      expect(prelude).toContain('zone=ogis_tiles:10m rate=100r/s;');
+      expect(prelude).toContain('zone=ogis_contours:10m rate=10r/s;');
+      expect(config).toContain('client_max_body_size 64k;');
+      expect(config).toContain('limit_req_status 429;');
+      expect(config).toContain('access_log /var/log/nginx/tile.ogis.app.access.log ogis;');
+      expect(nginxLocation(config, 'location /pois/')).toContain('limit_req zone=ogis_tiles');
+      expect(nginxLocation(config, 'location /contours/')).toContain(
+        'limit_req zone=ogis_contours',
+      );
+    }
   });
 });

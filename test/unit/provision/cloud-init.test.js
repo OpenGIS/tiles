@@ -142,6 +142,31 @@ describe('renderCloudInit', () => {
     expect(output).toContain('ln -sfn /etc/nginx/sites-available/tile.ogis.app');
   });
 
+  it('matches the deployed edge timeouts and body limit in the bootstrap', () => {
+    const output = render();
+
+    for (const directive of [
+      'client_max_body_size 64k;',
+      'client_header_timeout 10s;',
+      'client_body_timeout 10s;',
+      'send_timeout 30s;',
+      'keepalive_timeout 30s;',
+      'proxy_connect_timeout 5s;',
+      'proxy_send_timeout 30s;',
+      'proxy_read_timeout 60s;',
+    ]) {
+      expect(output).toContain(directive);
+    }
+  });
+
+  it('leaves rate limits and the custom log format to the first deploy', () => {
+    const output = render();
+
+    expect(output).not.toContain('limit_req');
+    expect(output).not.toContain('limit_conn');
+    expect(output).not.toContain('log_format ogis');
+  });
+
   it('enables the firewall, fail2ban and SSH hardening', () => {
     const output = render();
 

@@ -7,6 +7,27 @@ const CONTOUR_CACHE_GB = 2;
 export const DEFAULT_NGINX_CACHE_ROOT = '/var/cache/nginx';
 export const DEFAULT_NGINX_CACHE_OWNER = 'www-data';
 
+export const EDGE_LIMITS = Object.freeze({
+  tile: Object.freeze({
+    requestZone: 'ogis_tiles',
+    connectionZone: 'ogis_tile_conn',
+    rate: '100r/s',
+    burst: 200,
+    connections: 40,
+    readTimeout: '30s',
+  }),
+  contour: Object.freeze({
+    requestZone: 'ogis_contours',
+    connectionZone: 'ogis_contour_conn',
+    rate: '10r/s',
+    burst: 40,
+    connections: 8,
+    readTimeout: '75s',
+  }),
+  defaultReadTimeout: '60s',
+  healthReadTimeout: '10s',
+});
+
 export function nginxCacheOwner(value = DEFAULT_NGINX_CACHE_OWNER) {
   const owner = String(value ?? '').trim();
   if (!validUsername(owner)) {
@@ -125,14 +146,16 @@ function securityHeaders({ tls }) {
   return lines;
 }
 
-function proxyHeaders() {
+function proxyHeaders({ readTimeout = EDGE_LIMITS.defaultReadTimeout } = {}) {
   return [
     'proxy_http_version 1.1;',
     'proxy_set_header Host $host;',
     'proxy_set_header X-Real-IP $remote_addr;',
     'proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;',
     'proxy_set_header X-Forwarded-Proto $scheme;',
-    'proxy_read_timeout 60s;',
+    'proxy_connect_timeout 5s;',
+    'proxy_send_timeout 30s;',
+    `proxy_read_timeout ${readTimeout};`,
   ];
 }
 
@@ -140,10 +163,17 @@ function proxyPass(port) {
   return `proxy_pass http://127.0.0.1:${port};`;
 }
 
-function cacheLocation({ path, port, zone, lock = false, valid, tls }) {
+function cacheLocation({ path, port, zone, lock = false, valid, tls, limits }) {
   const lines = [`  location ${path} {`, `    ${proxyPass(port)}`];
 
-  for (const line of proxyHeaders()) {
+  if (limits) {
+    lines.push(
+      `    limit_req zone=${limits.requestZone} burst=${limits.burst} nodelay;`,
+      `    limit_conn ${limits.connectionZone} ${limits.connections};`,
+    );
+  }
+
+  for (const line of proxyHeaders({ readTimeout: limits?.readTimeout })) {
     lines.push(`    ${line}`);
   }
 
@@ -157,6 +187,10 @@ function cacheLocation({ path, port, zone, lock = false, valid, tls }) {
     lines.push('    proxy_cache_lock on;', '    proxy_cache_lock_timeout 60s;');
   }
 
+  if (limits) {
+    lines.push('    add_header Retry-After $ogis_retry_after always;');
+  }
+
   lines.push(
     '    add_header X-Cache-Status $upstream_cache_status always;',
     ...securityHeaders({ tls }).map((line) => `    ${line}`),
@@ -166,10 +200,10 @@ function cacheLocation({ path, port, zone, lock = false, valid, tls }) {
   return lines;
 }
 
-function plainLocation({ path, port, tls }) {
+function plainLocation({ path, port, tls, readTimeout = EDGE_LIMITS.defaultReadTimeout }) {
   const lines = [`  location ${path} {`, `    ${proxyPass(port)}`];
 
-  for (const line of proxyHeaders()) {
+  for (const line of proxyHeaders({ readTimeout })) {
     lines.push(`    ${line}`);
   }
 
@@ -198,6 +232,7 @@ function locations({ port, pmtiles, contours, tls }) {
         zone: `${name}_cache`,
         valid: '200 206 1h',
         tls,
+        limits: EDGE_LIMITS.tile,
       }),
     );
   }
@@ -221,11 +256,16 @@ function locations({ port, pmtiles, contours, tls }) {
         lock: true,
         valid: '200 24h',
         tls,
+        limits: EDGE_LIMITS.contour,
       }),
     );
   }
 
-  for (const path of ['= /health', '= /ready', '= /sources', '= /']) {
+  for (const path of ['= /health', '= /ready']) {
+    lines.push(...plainLocation({ path, port, tls, readTimeout: EDGE_LIMITS.healthReadTimeout }));
+  }
+
+  for (const path of ['= /sources', '= /']) {
     lines.push(...plainLocation({ path, port, tls }));
   }
 
@@ -250,6 +290,35 @@ function cachePaths({ pmtiles, contours, cacheRoot, sizes }) {
   }
 
   return lines;
+}
+
+function edgePrelude() {
+  return [
+    `limit_req_zone $binary_remote_addr zone=${EDGE_LIMITS.tile.requestZone}:10m rate=${EDGE_LIMITS.tile.rate};`,
+    `limit_req_zone $binary_remote_addr zone=${EDGE_LIMITS.contour.requestZone}:10m rate=${EDGE_LIMITS.contour.rate};`,
+    `limit_conn_zone $binary_remote_addr zone=${EDGE_LIMITS.tile.connectionZone}:10m;`,
+    `limit_conn_zone $binary_remote_addr zone=${EDGE_LIMITS.contour.connectionZone}:10m;`,
+    'map $status $ogis_retry_after {',
+    '  429 "1";',
+    '  default "";',
+    '}',
+    `log_format ogis '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time urt=$upstream_response_time cache=$upstream_cache_status';`,
+  ];
+}
+
+function serverEdgeControls({ host }) {
+  return [
+    'client_max_body_size 64k;',
+    'client_header_timeout 10s;',
+    'client_body_timeout 10s;',
+    'send_timeout 30s;',
+    'keepalive_timeout 30s;',
+    'limit_req_status 429;',
+    'limit_conn_status 429;',
+    'limit_req_log_level warn;',
+    'limit_conn_log_level warn;',
+    `access_log /var/log/nginx/${host}.access.log ogis;`,
+  ];
 }
 
 export function renderSystemdUnit({
@@ -341,6 +410,7 @@ export function renderNginxConfig({
   const lines = [
     '# Managed by ogis-tiles deployment. Do not edit on the server.',
     ...cachePaths({ pmtiles, contours, cacheRoot: root, sizes }),
+    ...edgePrelude(),
     '',
   ];
 
@@ -372,6 +442,8 @@ export function renderNginxConfig({
       '  ssl_session_cache shared:SSL:10m;',
       '  ssl_session_timeout 1d;',
       '',
+      ...serverEdgeControls({ host: domain }).map((line) => `  ${line}`),
+      '',
       ...securityHeaders({ tls: true }).map((line) => `  ${line}`),
       '',
       ...locations({ port: pinnedPort, pmtiles, contours, tls: true }),
@@ -387,6 +459,8 @@ export function renderNginxConfig({
       '  location /.well-known/acme-challenge/ {',
       `    root ${webroot};`,
       '  }',
+      '',
+      ...serverEdgeControls({ host: domain }).map((line) => `  ${line}`),
       '',
       ...securityHeaders({ tls: false }).map((line) => `  ${line}`),
       '',
