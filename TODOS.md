@@ -769,4 +769,4 @@ ordered backlog. Commands below use `ogis` as shorthand for `node bin/ogis.mjs`.
   - Is there a trademark or branding policy?
   - Does legal review need to happen before publication?
 
-**Previous:** [7. Roadmap](docs/7.roadmap.md) · **Next:** [Documentation index](docs/README.md) · [Documentation index](docs/README.md)
+**Previous:** [7. Roadmap](docs/7.roadmap.md) · **Next:** [Documentation index](docs/README.md)

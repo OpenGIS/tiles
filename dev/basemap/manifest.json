@@ -40,10 +40,6 @@
     "pmtilesVersion": "1.31.2",
     "extractCommand": "pmtiles extract --bbox=-115.65,50.95,-115.05,51.35 --maxzoom=14 --download-threads=4 https://btrfs.openfreemap.com/areas/planet/20261025_080012_pt/tiles.pmtiles dev/tiles/canmore.pmtiles"
   },
-  "map": {
-    "center": [-115.35, 51.15],
-    "zoom": 11.5
-  },
   "licenses": [
     "LICENSES/OpenMapTiles-LICENSE.md",
     "LICENSES/ODbL-1.0.txt",

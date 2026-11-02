@@ -52,7 +52,7 @@ profile.
 - `npm run build:tiles -- --help` lists the flags; `node bin/ogis.mjs build ...` is the same command.
 - Build all three sources from the committed fixture:
   `npm run build:tiles -- --fixture=test/fixtures/alberta-canmore.osm.pbf`.
-- Output is `dist/<buildId>/<source>/current.pmtiles` plus `build.json`. `--install` promotes to
+- Output is `dist/<buildId>/<source>/current.pmtiles` plus `build.json`. `--install` installs into
   `data/<source>/` and rotates the current pair to `previous` for rollback.
 - Use `--only` for one source, `--output-dir` for scratch output, and `--skip-verify` only with a
   deliberate override of the install guard.

@@ -102,7 +102,7 @@ npm run build:tiles -- --fixture=test/fixtures/alberta-canmore.osm.pbf --only=pa
 ```
 
 Output is `dist/<buildId>/<source>/current.pmtiles` plus `build.json`; build IDs are content-addressed
-(`fixture-<12 hex>` or `<YYYYMMDD>-<12 hex>`). `--install` promotes an archive to `data/<source>/`,
+(`fixture-<12 hex>` or `<YYYYMMDD>-<12 hex>`). `--install` installs an archive into `data/<source>/`,
 rotating the valid current pair to `previous` for rollback. The pipeline validates the input, applies
 one shared osmium filter, runs the Planetiler profile, repairs the PMTiles header, verifies the archive
 and sample tiles, and writes a per-source manifest. Flags, profiles, verification rules and the
